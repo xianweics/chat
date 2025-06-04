@@ -1,81 +1,85 @@
 import api from '@api';
+import * as actionTypes from "./actionTypes";
+import * as apiPath from "@api/path";
+import {modules} from "@store/config";
 
+const {auth } = modules;
 export const loadSessions = () => async (dispatch, getState) => {
-    dispatch({type: 'chat/loadSessionsRequest'});
-    try {
-        const token = getState().auth.token;
-        const response = await api.get('/api/sessions', {
-            headers: {Authorization: `Bearer ${token}`}
-        });
-        dispatch({type: 'chat/loadSessionsSuccess', payload: response.data});
-        return {success: true};
-    } catch (error) {
-        const errorMessage = error.response?.data?.error || 'Failed to load sessions';
-        dispatch({type: 'chat/loadSessionsFailure', payload: errorMessage});
-        return {success: false, error: errorMessage};
-    }
+  dispatch({type: actionTypes.LOAD_SESSION_REQUEST});
+  try {
+    const token = getState()[auth].token;
+    const response = await api.get(apiPath.SESSIONS_URL, {
+      headers: {Authorization: `Bearer ${token}`}
+    });
+    dispatch({type: actionTypes.LOAD_SESSION_SUCCESS, payload: response.data});
+    return {success: true};
+  } catch (error) {
+    const errorMessage = error.response?.data?.error || 'Failed to load sessions';
+    dispatch({type: actionTypes.LOAD_SESSION_FAILURE, payload: errorMessage});
+    return {success: false, error: errorMessage};
+  }
 };
 
 export const createSession = () => async (dispatch, getState) => {
-    dispatch({type: 'chat/createSessionRequest'});
-    try {
-        const token = getState().auth.token;
-        const response = await api.post('/api/sessions', {}, {
-            headers: {Authorization: `Bearer ${token}`}
-        });
-        dispatch({type: 'chat/createSessionSuccess', payload: response.data});
-        return {success: true, sessionId: response.data.id};
-    } catch (error) {
-        const errorMessage = error.response?.data?.error || 'Failed to create session';
-        dispatch({type: 'chat/createSessionFailure', payload: errorMessage});
-        return {success: false, error: errorMessage};
-    }
+  dispatch({type: actionTypes.CREATE_SESSION_REQUEST});
+  try {
+    const token = getState()[auth].token;
+    const response = await api.post(apiPath.SESSIONS_URL, {}, {
+      headers: {Authorization: `Bearer ${token}`}
+    });
+    dispatch({type: actionTypes.CREATE_SESSION_SUCCESS, payload: response.data});
+    return {success: true, sessionId: response.data.id};
+  } catch (error) {
+    const errorMessage = error.response?.data?.error || 'Failed to create session';
+    dispatch({type: actionTypes.CREATE_SESSION_FAILURE, payload: errorMessage});
+    return {success: false, error: errorMessage};
+  }
 };
 
-export const loadMessages = (sessionId) => async (dispatch, getState) => {
-    dispatch({type: 'chat/loadMessagesRequest'});
-    try {
-        const token = getState().auth.token;
-        const response = await api.get(`/api/sessions/${sessionId}/messages`, {
-            headers: {Authorization: `Bearer ${token}`}
-        });
-        dispatch({
-            type: 'chat/loadMessagesSuccess',
-            payload: {sessionId, messages: response.data}
-        });
-        return {success: true};
-    } catch (error) {
-        const errorMessage = error.response?.data?.error || 'Failed to load messages';
-        dispatch({type: 'chat/loadMessagesFailure', payload: errorMessage});
-        return {success: false, error: errorMessage};
-    }
+export const loadMessages = sessionId => async (dispatch, getState) => {
+  dispatch({type: actionTypes.LOAD_MESSAGE_REQUEST});
+  try {
+    const token = getState()[auth].token;
+    const response = await api.get(apiPath.getSessionsMessages(sessionId), {
+      headers: {Authorization: `Bearer ${token}`}
+    });
+    dispatch({
+      type: actionTypes.LOAD_MESSAGE_SUCCESS,
+      payload: {sessionId, messages: response.data}
+    });
+    return {success: true};
+  } catch (error) {
+    const errorMessage = error.response?.data?.error || 'Failed to load messages';
+    dispatch({type: actionTypes.LOAD_MESSAGE_FAILURE, payload: errorMessage});
+    return {success: false, error: errorMessage};
+  }
 };
 
 export const sendMessage = (sessionId, content) => async (dispatch, getState) => {
-    dispatch({type: 'chat/sendMessageRequest'});
-    try {
-        const token = getState().auth.token;
-        const response = await api.post('/api/chat', {
-            sessionId, content
-        }, {
-            headers: {Authorization: `Bearer ${token}`}
-        });
+  dispatch({type: actionTypes.SEND_MESSAGE_REQUEST});
+  try {
+    const token = getState()[auth].token;
+    const response = await api.post(apiPath.CHAT_URL, {
+      sessionId, content
+    }, {
+      headers: {Authorization: `Bearer ${token}`}
+    });
 
-        const {userMsg, aiMsg} = response.data;
+    const {userMsg, aiMsg} = response.data;
 
-        dispatch({
-            type: 'chat/sendMessageSuccess',
-            payload: {sessionId, userMessage: userMsg, aiMessage: aiMsg}
-        });
+    dispatch({
+      type: actionTypes.SEND_MESSAGE_SUCCESS,
+      payload: {sessionId, userMessage: userMsg, aiMessage: aiMsg}
+    });
 
-        return {success: true};
-    } catch (error) {
-        const errorMessage = error.response?.data?.error || 'Failed to send message';
-        dispatch({type: 'chat/sendMessageFailure', payload: errorMessage});
-        return {success: false, error: errorMessage};
-    }
+    return {success: true};
+  } catch (error) {
+    const errorMessage = error.response?.data?.error || 'Failed to send message';
+    dispatch({type: actionTypes.SEND_MESSAGE_FAILURE, payload: errorMessage});
+    return {success: false, error: errorMessage};
+  }
 };
 
-export const setActiveSession = (sessionId) => (dispatch) => {
-    dispatch({type: 'chat/setActiveSession', payload: sessionId});
+export const setActiveSession = sessionId => (dispatch) => {
+  dispatch({type: actionTypes.SET_ACTIVE_SESSION, payload: sessionId});
 };

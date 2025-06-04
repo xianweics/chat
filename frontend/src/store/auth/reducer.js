@@ -1,30 +1,44 @@
-import {authInitialState} from "@src/store/config";
+import {AUTH_STATUS_LOADING, AUTH_STATUS_SUCCEEDED, AUTH_STATUS_FAILED, AUTH_STATUS_IDLE} from "@src/config";
+import {modules, MODULE_NAME} from "@store/config";
+import * as actionTypes from "./actionTypes";
+
+const prefix = modules.auth;
+
+const authInitialState = {
+  user: null,
+  token: null,
+  status: AUTH_STATUS_IDLE,
+  error: null,
+  [MODULE_NAME]: prefix
+};
 
 const auth = (state = authInitialState, action) => {
-    switch (action.type) {
-        case 'auth/loginRequest':
-            return {...state, status: 'loading'};
-        case 'auth/loginSuccess':
-            return {
-                ...state,
-                status: 'succeeded',
-                user: action.payload.user,
-                token: action.payload.token,
-                error: null
-            };
-        case 'auth/loginFailure':
-            return {...state, status: 'failed', error: action.payload};
-        case 'auth/registerRequest':
-            return {...state, status: 'loading'};
-        case 'auth/registerSuccess':
-            return {...state, status: 'succeeded', error: null};
-        case 'auth/registerFailure':
-            return {...state, status: 'failed', error: action.payload};
-        case 'auth/logout':
-            return {...authInitialState};
-        default:
-            return state;
-    }
+  const {type, payload} = action;
+  const {user, token} = payload || {};
+  switch (type) {
+    case actionTypes.LOGIN_REQUEST:
+      return {...state, status: AUTH_STATUS_LOADING};
+    case actionTypes.LOGIN_SUCCESS:
+      return {
+        ...state,
+        user,
+        token,
+        error: null,
+        status: AUTH_STATUS_SUCCEEDED
+      };
+    case actionTypes.LOGIN_FAILURE:
+      return {...state, status: AUTH_STATUS_FAILED, error: payload};
+    case actionTypes.REGISTER_REQUEST:
+      return {...state, status: AUTH_STATUS_LOADING};
+    case actionTypes.REGISTER_SUCCESS:
+      return {...state, status: AUTH_STATUS_SUCCEEDED, error: null};
+    case actionTypes.REGISTER_FAILURE:
+      return {...state, status: AUTH_STATUS_FAILED, error: payload};
+    case actionTypes.LOGOUT:
+      return {...authInitialState};
+    default:
+      return state;
+  }
 }
 
 export default auth;

@@ -55,6 +55,10 @@ export const loadMessages = sessionId => async (dispatch, getState) => {
   }
 };
 
+export const resetLoadMessage =() => dispatch =>{
+  dispatch({type: actionTypes.LOAD_MESSAGE_RESET});
+}
+
 export const sendMessage = (sessionId, content) => async (dispatch, getState) => {
   dispatch({type: actionTypes.SEND_MESSAGE_REQUEST});
   try {

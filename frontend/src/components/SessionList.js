@@ -1,27 +1,30 @@
-import {List, Button, Typography, Skeleton, Card} from 'antd';
+import {Button, Card, List, Skeleton, Typography} from 'antd';
 import {PlusOutlined} from '@ant-design/icons';
 import {useDispatch, useSelector} from 'react-redux';
 
 import {
   createSession,
+  loadMessages, resetLoadMessage,
   setActiveSession,
-  loadMessages
 } from '@store/chat/actions';
-import {AUTH_STATUS_LOADING} from "@src/config";
-import {modules} from "@store/config";
-import {useCallback, useMemo} from "react";
+import {SESSION_STATUS_LOADING} from '@store/chat/statuses.config';
+import {modules} from '@store/config';
+import {useCallback, useMemo} from 'react';
+import {formatSessionDescription} from '@src/utils';
 
 const {Title} = Typography;
 
 const SessionList = () => {
   const dispatch = useDispatch();
-  const {sessions, activeSessionId, status} = useSelector(state => state[modules.chat]);
-  const sessionsList = useMemo(() => Object.values(sessions), [sessions]);
-
+  const {sessions, activeSessionId} = useSelector(state => state[modules.chat]);
+  const [sessionsList, status] = useMemo(() => [Object.values(sessions.sessions), sessions.status], [sessions]);
+  
+  const isLoading = useMemo(() => status === SESSION_STATUS_LOADING, [status]);
   const handleCreateSession = useCallback(async () => {
     const {success, sessionId} = await dispatch(createSession());
     if (success) {
       dispatch(setActiveSession(sessionId));
+      dispatch(resetLoadMessage());
     }
   },[dispatch]);
 
@@ -31,38 +34,41 @@ const SessionList = () => {
   },[dispatch]);
 
   return (
-    <Card style={{height: '100%'}}>
+    <Card>
       <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: 16}}>
         <Title level={4} style={{margin: 0}}>Chat Sessions</Title>
         <Button
           type="primary"
           icon={<PlusOutlined/>}
           onClick={handleCreateSession}
-          loading={status === AUTH_STATUS_LOADING}
+          loading={isLoading}
         >
           New
         </Button>
       </div>
 
-      {status === AUTH_STATUS_LOADING ?
+      {isLoading ?
         <Skeleton active paragraph={{rows: 4}}/> :
         <List
           itemLayout="horizontal"
           dataSource={sessionsList}
-          renderItem={session => (
+          renderItem={({id, title, messages}) => (
             <List.Item
               style={{
                 cursor: 'pointer',
-                backgroundColor: session.id === activeSessionId ? '#e6f7ff' : '',
+                backgroundColor: id === activeSessionId ? '#e6f7ff' : '',
                 padding: '10px 16px'
               }}
-              onClick={() => handleSelectSession(session.id)}
+              onClick={() => handleSelectSession(id)}
             >
               <List.Item.Meta
-                title={session.title}
-                description={session.messages.length > 0
-                  ? session.messages[session.messages.length - 1]?.content.substring(0, 50) + '...'
-                  : 'No messages yet'}
+                title={title}
+                description={<div style={{
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}>
+                  {formatSessionDescription(messages)}
+                </div>}
               />
             </List.Item>
           )}

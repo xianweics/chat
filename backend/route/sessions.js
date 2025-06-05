@@ -1,7 +1,6 @@
 const {authenticateJWT} = require("./auth-middleware");
 const {Session, Message} = require("../db/mysql-server");
 const {SESSIONS_URL, SESSIONS_URL_BASE_ID} = require("./path");
-const {DataTypes} = require("sequelize");
 
 const sessionRoute = app => {
   app.get(SESSIONS_URL, authenticateJWT, async (req, res) => {
@@ -11,9 +10,9 @@ const sessionRoute = app => {
         order: [['updatedAt', 'DESC']],
         include: [{
           model: Message,
-          as: 'Messages',
+          as: 'messages',
           limit: 1,
-          order: [['createdAt', 'DESC']]
+          order: [['createdAt', 'ASC']]
         }]
       });
 

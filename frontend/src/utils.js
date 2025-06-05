@@ -5,3 +5,7 @@ export const parseToken = token => {
     throw error;
   }
 }
+
+export const formatSessionDescription = messages => messages.length === 0
+  ? 'No messages yet'
+  : messages[0]?.content.trim() || '';

@@ -1,13 +1,28 @@
-import {AUTH_STATUS_LOADING, CHAT_STATUS_FAILED, CHAT_STATUS_LOADING, CHAT_STATUS_SUCCEEDED, CHAT_STATUS_IDLE} from "@src/config";
-import {modules, MODULE_NAME} from "@store/config";
-import * as actionTypes from "./actionTypes";
+import * as statuses from './statuses.config';
+import {MODULE_NAME, modules} from '@store/config';
+import * as actionTypes from './actionTypes';
 
 const initialState = {
-  sessions: {},
+  sessions: {
+    status: statuses.SESSION_STATUS_IDLE,
+    error: null,
+    sessions: {},
+  },
+  messages: {
+    error: null,
+    messages: [],
+    status: statuses.MESSAGE_STATUS_IDLE,
+  },
+  create: {
+    error: null,
+    status: statuses.CREATE_STATUS_IDLE,
+  },
+  send: {
+    error: null,
+    status: statuses.SEND_STATUS_IDLE,
+  },
   activeSessionId: null,
-  status: CHAT_STATUS_IDLE, // idle, loading, succeeded, failed
-  error: null,
-  [MODULE_NAME]: modules.chat
+  [MODULE_NAME]: modules.chat,
 };
 
 const chat = (state = initialState, action) => {
@@ -15,75 +30,159 @@ const chat = (state = initialState, action) => {
   const {id, title, sessionId: payloadSessionId, messages} = payload || {};
   switch (type) {
     case actionTypes.LOAD_SESSION_REQUEST:
-      return {...state, status: AUTH_STATUS_LOADING};
+      return {
+        ...state,
+        sessions: {
+          sessions: {},
+          status: statuses.SESSION_STATUS_LOADING,
+          error: null,
+        },
+      };
     case actionTypes.LOAD_SESSION_SUCCESS:
       return {
         ...state,
-        status: CHAT_STATUS_SUCCEEDED,
-        sessions: payload.reduce((acc, session) => {
-          acc[session.id] = {
-            ...session,
-            messages: session.Messages ? [session.Messages[0]] : [] // Only last message
-          };
-          return acc;
-        }, {})
+        sessions: {
+          error: null,
+          status: statuses.SESSION_STATUS_SUCCEEDED,
+          sessions: payload.reduce((acc, session) => {
+            acc[session.id] = session;
+            return acc;
+          }, {}),
+        },
       };
     case actionTypes.LOAD_SESSION_FAILURE:
-      return {...state, status: CHAT_STATUS_FAILED, error: payload};
-    case actionTypes.CREATE_SESSION_REQUEST:
-      return {...state, status: CHAT_STATUS_LOADING};
-    case actionTypes.CREATE_SESSION_SUCCESS:
       return {
         ...state,
-        status: CHAT_STATUS_SUCCEEDED,
+        sessions: {
+          sessions: {},
+          status: statuses.SESSION_STATUS_FAILED,
+          error: payload,
+        },
+      };
+    case actionTypes.CREATE_SESSION_REQUEST:
+      return {
+        ...state,
+        create: {
+          error: null,
+          status: statuses.CREATE_STATUS_LOADING,
+        },
+      };
+    case actionTypes.CREATE_SESSION_FAILURE:
+      return {
+        ...state,
+        create: {
+          error: payload,
+          status: statuses.CREATE_STATUS_FAILED,
+        },
+      };
+    case actionTypes.CREATE_SESSION_SUCCESS:
+      debugger;
+      return {
+        ...state,
         activeSessionId: id,
+        create: {
+          status: statuses.CREATE_STATUS_SUCCEEDED,
+          error: null,
+        },
         sessions: {
           ...state.sessions,
-          [id]: {
-            id,
-            title,
-            messages: []
+          sessions: {
+            ...state.sessions.sessions,
+            [id]: {
+              id,
+              title,
+              messages: [],
+            },
           }
         }
       };
-    case actionTypes.CREATE_SESSION_FAILURE:
-      return {...state, status: CHAT_STATUS_FAILED, error: payload};
     case actionTypes.LOAD_MESSAGE_REQUEST:
-      return {...state, status: CHAT_STATUS_LOADING};
+      return {
+        ...state,
+        messages: {
+          status: statuses.MESSAGE_STATUS_LOADING,
+          error: null,
+          messages: [],
+        },
+      };
+    case actionTypes.LOAD_MESSAGE_RESET:
+      return {
+        ...state,
+        messages: {
+          status: statuses.MESSAGE_STATUS_IDLE,
+          error: null,
+          messages: [],
+        },
+      };
     case actionTypes.LOAD_MESSAGE_SUCCESS:
       return {
         ...state,
-        status: CHAT_STATUS_SUCCEEDED,
-        sessions: {
-          ...state.sessions,
-          [payloadSessionId]: {
-            ...state.sessions[payloadSessionId],
-            messages
-          }
+        messages: {
+          status: statuses.MESSAGE_STATUS_SUCCEEDED,
+          error: null,
+          messages,
         },
-        activeSessionId: payloadSessionId
+        create: {
+          ...state.create,
+          activeSessionId: payloadSessionId,
+        },
       };
-    case actionTypes.SEND_MESSAGE_FAILURE:
-      return {...state, status: CHAT_STATUS_FAILED, error: payload};
-    case actionTypes.SEND_MESSAGE_REQUEST:
-      return {...state, status: CHAT_STATUS_LOADING};
-    case actionTypes.SEND_MESSAGE_SUCCESS:
-      const {sessionId, userMessage, aiMessage} = payload;
+    case actionTypes.LOAD_MESSAGE_FAILURE:
       return {
         ...state,
-        status: CHAT_STATUS_SUCCEEDED,
-        sessions: {
+        messages: {
+          status: statuses.MESSAGE_STATUS_FAILED,
+          error: payload,
+          messages: [],
+        },
+      };
+    case actionTypes.SEND_MESSAGE_REQUEST:
+      return {
+        ...state,
+        send: {
+          status: statuses.SEND_STATUS_LOADING,
+          error: null,
+        },
+      };
+    case actionTypes.SEND_MESSAGE_FAILURE:
+      return {
+        ...state,
+        send: {
+          status: statuses.SEND_STATUS_FAILED,
+          error: payload,
+        },
+      };
+    case actionTypes.SEND_MESSAGE_SUCCESS:
+      const {userMessage, aiMessage, sessionId} = payload;
+      const normalUpdatedData = {
+        ...state,
+        messages: {
+          status: statuses.MESSAGE_STATUS_SUCCEEDED,
+          error: null,
+          messages: [
+            ...state.messages.messages,
+            userMessage,
+            aiMessage,
+          ],
+        },
+        send: {
+          status: statuses.SEND_STATUS_SUCCEEDED,
+          error: null,
+        },
+      };
+      if (state.sessions.sessions[sessionId].messages.length === 0) {
+        normalUpdatedData.sessions = {
           ...state.sessions,
-          [sessionId]: {
-            ...state.sessions[sessionId],
-            messages: [
-              ...state.sessions[sessionId].messages,
-              userMessage,
-              aiMessage
-            ]
+          sessions: {
+            ...state.sessions.sessions,
+            [sessionId]: {
+              ...state.sessions.sessions[sessionId],
+              messages: [userMessage],
+            },
           }
         }
-      };
+      }
+      return normalUpdatedData;
     case actionTypes.SET_ACTIVE_SESSION:
       return {...state, activeSessionId: payload};
     default:

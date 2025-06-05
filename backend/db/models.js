@@ -20,10 +20,10 @@ module.exports = sequelize => {
     timestamps: true,
     indexes: [{fields: ['createdAt']}]
   });
-
+  
   User.hasMany(Session, {foreignKey: 'userId'});
   Session.belongsTo(User, {foreignKey: 'userId'});
-  Session.hasMany(Message, {foreignKey: 'sessionId'});
+  Session.hasMany(Message, {foreignKey: 'sessionId', as: 'messages'});
   Message.belongsTo(Session, {foreignKey: 'sessionId'});
   return {User, Session, Message};
 };

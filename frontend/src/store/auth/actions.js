@@ -1,8 +1,8 @@
 import api from '@api';
-import * as apiPath from "@api/path";
-import * as actionTypes from "./actionTypes";
-import {TOKEN} from "@src/config";
-import {parseToken} from "@src/utils";
+import * as apiPath from '@api/path';
+import * as actionTypes from './actionTypes';
+import {TOKEN} from '@src/config';
+import {parseToken} from '@src/utils';
 
 export const registerUser = (username, password) => async dispatch => {
   dispatch({type: actionTypes.REGISTER_REQUEST});
@@ -15,6 +15,10 @@ export const registerUser = (username, password) => async dispatch => {
     dispatch({type: actionTypes.REGISTER_FAILURE, payload: errorMessage});
     return {success: false, error: errorMessage};
   }
+};
+
+export const resetUser = () => dispatch => {
+  dispatch({type: actionTypes.RESET});
 };
 
 export const loginUser = (un, password) => async dispatch => {

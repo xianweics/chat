@@ -9,6 +9,7 @@ export const CREATE_SESSION_REQUEST = createActionType('createSessionRequest');
 export const CREATE_SESSION_FAILURE = createActionType('createSessionFailure');
 export const CREATE_SESSION_SUCCESS = createActionType('createSessionSuccess');
 export const LOAD_MESSAGE_REQUEST = createActionType('loadMessagesRequest');
+export const LOAD_MESSAGE_RESET = createActionType('loadMessagesRest');
 export const LOAD_MESSAGE_SUCCESS = createActionType('loadMessagesSuccess');
 export const LOAD_MESSAGE_FAILURE = createActionType('loadMessagesFailure');
 export const SEND_MESSAGE_REQUEST = createActionType('sendMessageRequest');

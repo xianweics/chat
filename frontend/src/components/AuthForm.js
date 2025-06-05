@@ -1,11 +1,11 @@
 import {useCallback, useState} from 'react';
 import {useDispatch, useSelector} from 'react-redux';
-import {Button, Form, Input, Card, Typography} from 'antd';
-import {UserOutlined, LockOutlined} from '@ant-design/icons';
+import {Button, Card, Form, Input, Typography} from 'antd';
+import {LockOutlined, UserOutlined} from '@ant-design/icons';
 
-import {registerUser, loginUser} from '@store/auth/actions';
-import {AUTH_STATUS_LOADING} from "@src/config";
-import {modules} from "@store/config";
+import {loginUser, registerUser, resetUser} from '@store/auth/actions';
+import {AUTH_STATUS_LOADING} from '@store/auth/statuses.config';
+import {modules} from '@store/config';
 
 const {Title} = Typography;
 
@@ -18,8 +18,14 @@ const AuthForm = () => {
   const handleSubmit = useCallback(async () => {
     const values = await form.validateFields();
     const {username, password} = values;
-    dispatch(isLogin ? loginUser(username, password) : registerUser(username, password));
+    dispatch(isLogin ? loginUser(username, password) : registerUser(username,
+      password));
   }, [dispatch, isLogin, form]);
+  
+  const toggleLogin = useCallback(() => {
+    dispatch(resetUser());
+    setIsLogin(!isLogin);
+  }, [isLogin, dispatch]);
 
   return (
     <Card style={{maxWidth: 400, margin: '50px auto'}}>
@@ -58,13 +64,16 @@ const AuthForm = () => {
               }),
             ]}
           >
-            <Input.Password prefix={<LockOutlined/>} placeholder="Confirm Password"/>
+            <Input.Password prefix={<LockOutlined/>}
+                            placeholder="Confirm Password"/>
           </Form.Item>
         )}
 
         {error && (
           <div style={{color: 'red', marginBottom: 15, textAlign: 'center'}}>
-            {error === 'INVALID_CREDENTIALS' ? 'Invalid username or password' : error}
+            {error === 'INVALID_CREDENTIALS'
+              ? 'Invalid username or password'
+              : error}
           </div>
         )}
 
@@ -81,7 +90,7 @@ const AuthForm = () => {
       </Form>
 
       <div style={{textAlign: 'center', marginTop: 15}}>
-        <Button type="link" onClick={() => setIsLogin(!isLogin)}>
+        <Button type="link" onClick={toggleLogin}>
           {isLogin ? 'No account? Register now' : 'Have an account? Login now'}
         </Button>
       </div>

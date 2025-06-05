@@ -1,24 +1,32 @@
-import {useState, useEffect, useRef, useMemo, useCallback} from 'react';
-import {Button, Input, Typography, Card} from 'antd';
+import {useCallback, useEffect, useMemo, useState} from 'react';
+import {Button, Card, Input, Typography} from 'antd';
 import {SendOutlined} from '@ant-design/icons';
 import {useDispatch, useSelector} from 'react-redux';
 
 import MessageBubble from './MessageBubble';
 import {sendMessage} from '@store/chat/actions';
-import {AUTH_STATUS_LOADING} from "@src/config";
-import {modules} from "@store/config";
+import {modules} from '@store/config';
+import {
+  MESSAGE_STATUS_SUCCEEDED,
+  SEND_STATUS_LOADING,
+} from '@store/chat/statuses.config';
 
 const {Title} = Typography;
 
 const ChatWindow = () => {
   const [message, setMessage] = useState('');
-  const messagesEndRef = useRef(null);
   const dispatch = useDispatch();
-
-  const {activeSessionId, sessions, status} = useSelector(state => state[modules.chat]);
-
-  const currentSession = useMemo(() => activeSessionId ? sessions[activeSessionId] : null, [activeSessionId, sessions]);
-  const messages = useMemo(() => currentSession?.messages || [], [currentSession]);
+  
+  const {activeSessionId, sessions, messages, send} = useSelector(
+    state => state[modules.chat]);
+  const list = useMemo(() => {
+    const {status, messages: msg} = messages;
+    return status === MESSAGE_STATUS_SUCCEEDED ? msg : [];
+  }, [messages]);
+  const currentSession = useMemo(() => sessions[activeSessionId],
+    [activeSessionId, sessions]);
+  const isLoading = useMemo(() => send.status === SEND_STATUS_LOADING,
+    [send]);
 
   const handleSendMessage = useCallback(() => {
     if (!message.trim()) return;
@@ -33,17 +41,17 @@ const ChatWindow = () => {
       handleSendMessage();
     }
   }, [handleSendMessage]);
-
+  
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({behavior: 'smooth'});
-  }, []);
-
+    setMessage('');
+  },[activeSessionId]);
+  
   return activeSessionId ? <Card
     title={currentSession?.title || 'Chat Session'}
     style={{height: '100%', display: 'flex', flexDirection: 'column'}}
   >
     <div style={{flex: 1, overflowY: 'auto', padding: 16}}>
-      {messages.length === 0 ?
+      {list.length === 0 ?
         <div style={{
           height: '100%',
           display: 'flex',
@@ -53,13 +61,12 @@ const ChatWindow = () => {
         }}>
           No chat history
         </div>
-        : messages.map((msg) => <MessageBubble
+        : list.map((msg) => <MessageBubble
             key={msg.id}
             isFromAi={msg.is_from_ai}
             content={msg.content}
           />
         )}
-      <div ref={messagesEndRef}/>
     </div>
 
     <div style={{padding: 16, borderTop: '1px solid #f0f0f0'}}>
@@ -69,14 +76,14 @@ const ChatWindow = () => {
         onPressEnter={handleKeyPress}
         placeholder="Type a message..."
         autoSize={{minRows: 1, maxRows: 6}}
-        disabled={status === AUTH_STATUS_LOADING}
+        disabled={isLoading}
       />
       <div style={{textAlign: 'right', marginTop: 12}}>
         <Button
           type="primary"
           icon={<SendOutlined/>}
           onClick={handleSendMessage}
-          loading={status === AUTH_STATUS_LOADING}
+          loading={isLoading}
           disabled={!message.trim()}
         >
           Send

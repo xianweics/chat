@@ -2,3 +2,5 @@ chat.iml
 node_modules
 .idea
 *.iml
+private.pem
+public.pem

@@ -1,8 +1,11 @@
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
+const {readFileSync} = require("fs");
+const {resolve} = require("path");
 
 const {User} = require("../db/mysql-server");
 const {REGISTER_URL, LOGIN_URL} = require("./path");
+const privateKey = readFileSync(resolve(__dirname, "../../private.pem"));
 
 const authRoute = app => {
   app.post(REGISTER_URL, async (req, res) => {
@@ -37,8 +40,9 @@ const authRoute = app => {
         return res.status(401).json({code: 401, error: "INVALID_CREDENTIALS"});
       }
 
-      const token = jwt.sign({userId: user.id, username: user.username}, process.env.JWT_SECRET, {
-        expiresIn: '2h'
+      const token = jwt.sign({userId: user.id, username: user.username}, privateKey, {
+        expiresIn: '24h',
+        algorithm: "RS256"
       });
 
       res.json({token});

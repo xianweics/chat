@@ -34,7 +34,7 @@ const SessionList = () => {
   },[dispatch]);
 
   return (
-    <Card>
+    <Card style={{ border: 'none' }}>
       <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: 16}}>
         <Title level={4} style={{margin: 0}}>Chat Sessions</Title>
         <Button

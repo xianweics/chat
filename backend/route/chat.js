@@ -1,5 +1,6 @@
 const {authenticateJWT} = require("./auth-middleware");
 const {CHAT_URL} = require("./path");
+
 const {Message} = require("../db/mysql-server");
 
 const chatRoute = (app) => {

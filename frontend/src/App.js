@@ -1,4 +1,3 @@
-import Login from './components/Login';
 import {useAuth} from './hooks/useAuth';
 import Main from "@components/Main";
 import {useEffect} from "react";
@@ -7,6 +6,7 @@ import {parseToken} from "@src/utils";
 import {LOGIN_SUCCESS} from "@store/auth/actionTypes";
 import {loadSessions} from "@store/chat/actions";
 import {useDispatch} from "react-redux";
+import AuthForm from "@components/AuthForm";
 
 const App = () => {
   const dispatch = useDispatch();
@@ -29,7 +29,7 @@ const App = () => {
   }, [dispatch]);
 
   const {isAuthenticated} = useAuth();
-  return isAuthenticated ? <Main/> : <Login/>;
+  return isAuthenticated ? <Main/> : <AuthForm/>;
 }
 
 export default App;

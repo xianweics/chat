@@ -11,6 +11,16 @@ body {
   background: #fff;
 }
 
-.ant-card-head {
-  min-height: 50px;
+.ant-card {
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+
+  .ant-card-body {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: auto;
+  }
 }
+

@@ -76,7 +76,6 @@ const chat = (state = initialState, action) => {
         },
       };
     case actionTypes.CREATE_SESSION_SUCCESS:
-      debugger;
       return {
         ...state,
         activeSessionId: id,

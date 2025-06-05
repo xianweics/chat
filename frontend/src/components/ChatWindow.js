@@ -7,6 +7,7 @@ import MessageBubble from './MessageBubble';
 import {sendMessage} from '@store/chat/actions';
 import {modules} from '@store/config';
 import {
+  CREATE_STATUS_LOADING,
   MESSAGE_STATUS_LOADING,
   MESSAGE_STATUS_SUCCEEDED,
   SEND_STATUS_LOADING,
@@ -18,7 +19,7 @@ const ChatWindow = () => {
   const [message, setMessage] = useState('');
   const dispatch = useDispatch();
   
-  const {activeSessionId, sessions, messages, send} = useSelector(
+  const {activeSessionId, sessions, messages, send, create} = useSelector(
     state => state[modules.chat]);
   const list = useMemo(() => {
     const {status, messages: msg} = messages;
@@ -29,8 +30,9 @@ const ChatWindow = () => {
   const isLoadingSend = useMemo(() => send.status === SEND_STATUS_LOADING,
     [send]);
   const isLoadingMessages = useMemo(
-    () => messages.status === MESSAGE_STATUS_LOADING,
-    [messages]);
+    () => messages.status === MESSAGE_STATUS_LOADING || create.status ===
+      CREATE_STATUS_LOADING,
+    [messages, create]);
 
   const handleSendMessage = useCallback(() => {
     if (!message.trim()) return;

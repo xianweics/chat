@@ -1,7 +1,7 @@
 const {authenticateJWT} = require("./auth-middleware");
 const {CHAT_URL} = require("./path");
 
-const {Message} = require("../db/mysql-server");
+const {Message} = require("../db/postgres-server");
 
 const chatRoute = (app) => {
   app.post(CHAT_URL, authenticateJWT, async (req, res) => {

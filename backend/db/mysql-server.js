@@ -1,13 +1,11 @@
-require('dotenv').config();
-
 const {Sequelize} = require("sequelize");
 const initModels = require('./models');
 
-const sequelize = new Sequelize(process.env.DB_NAME, process.env.DB_USER, process.env.DB_PASSWORD, {
-  host: process.env.DB_HOST,
+const sequelize = new Sequelize(process.env.MYSQL_DB_NAME, process.env.MYSQL_DB_USER, process.env.DB_PASSWORD, {
+  host: process.env.MYSQL_DB_HOST,
   dialect: 'mysql',
   logging: true,
-  port: process.env.DB_PORT
+  port: process.env.MYSQL_DB_PORT
 });
 
 const models = initModels(sequelize);

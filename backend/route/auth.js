@@ -1,11 +1,11 @@
-const bcrypt = require("bcrypt");
-const jwt = require("jsonwebtoken");
-const {readFileSync} = require("fs");
-const {resolve} = require("path");
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+const {readFileSync} = require('fs');
+const {resolve} = require('path');
 
-const {User} = require("../db/mysql-server");
-const {REGISTER_URL, LOGIN_URL} = require("./path");
-const privateKey = readFileSync(resolve(__dirname, "../../private.pem"));
+const {User} = require('../db/postgres-server');
+const {REGISTER_URL, LOGIN_URL} = require('./path');
+const privateKey = readFileSync(resolve(__dirname, '../../private.pem'));
 
 const authRoute = app => {
   app.post(REGISTER_URL, async (req, res) => {
@@ -31,19 +31,20 @@ const authRoute = app => {
       const formatUserName = username.trim();
       const user = await User.findOne({where: {username: formatUserName}});
       if (!user) {
-        return res.status(401).json({code: 401, error: "INVALID_CREDENTIALS"});
+        return res.status(401).json({code: 401, error: 'INVALID_CREDENTIALS'});
       }
 
       const isValid = await bcrypt.compare(password, user.password);
 
       if (!isValid) {
-        return res.status(401).json({code: 401, error: "INVALID_CREDENTIALS"});
+        return res.status(401).json({code: 401, error: 'INVALID_CREDENTIALS'});
       }
 
-      const token = jwt.sign({userId: user.id, username: user.username}, privateKey, {
-        expiresIn: '24h',
-        algorithm: "RS256"
-      });
+      const token = jwt.sign({userId: user.id, username: user.username},
+          privateKey, {
+            expiresIn: process.env.JWT_EXPIRE_TIME,
+            algorithm: process.env.JWT_ALGORITHM,
+          });
 
       res.json({token});
     } catch (err) {
@@ -51,6 +52,6 @@ const authRoute = app => {
       res.status(500).json({error: 'Login failed'});
     }
   });
-}
+};
 
-module.exports = authRoute
+module.exports = authRoute;

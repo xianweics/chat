@@ -1,5 +1,5 @@
 const {authenticateJWT} = require("./auth-middleware");
-const {Session, Message} = require("../db/mysql-server");
+const {Session, Message} = require("../db/postgres-server");
 const {SESSIONS_URL, SESSIONS_URL_BASE_ID} = require("./path");
 
 const sessionRoute = app => {

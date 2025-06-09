@@ -4,3 +4,4 @@ node_modules
 *.iml
 private.pem
 public.pem
+/llm/chromaDB/

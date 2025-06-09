@@ -8,7 +8,7 @@ const authenticateJWT = (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (authHeader) {
     const token = authHeader.split(' ')[1];
-    jwt.verify(token, publicKey, {algorithms: ["RS256"]}, (err, user) => {
+    jwt.verify(token, publicKey, {algorithms: [process.env.JWT_ALGORITHM]}, (err, user) => {
       if (err) {
         return res.sendStatus(403);
       }

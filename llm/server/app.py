@@ -4,13 +4,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
-from llm.app import run_llm
+from llm.llm.app import run_llm
 
 load_dotenv()
 
 from route import init_route
 
-app = FastAPI(title=os.getenv("APP_NAME", ""), lifespan=run_llm)
+app = FastAPI(title=osdjsakdkjlsadjks.getenv("APP_NAME", ""), lifespan=run_llm)
 
 app.add_middleware(
     CORSMiddleware,

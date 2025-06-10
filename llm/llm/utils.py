@@ -2,26 +2,26 @@ import os
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Annotated, TypedDict, Sequence, Optional
+
 from langchain_core.messages import BaseMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langgraph.constants import START, END
 from langgraph.graph import StateGraph, add_messages
 from langgraph.prebuilt import tools_condition, ToolNode
 from pdfminer.high_level import extract_pages
 from pdfminer.layout import LTTextContainer
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from openai import OpenAI
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from llm.db import DB
-from llm.prompts.config import (
+from llm.llm.db import create_db
+from llm.llm.model_config import MODEL_CONFIGS, DEFAULT_LLM_TYPE
+from llm.llm.prompts.config import (
     PROMPT_TEMPLATE_TXT_REWRITE,
     PROMPT_TEMPLATE_TXT_GRADE,
     PROMPT_TEMPLATE_TXT_AGENT,
     PROMPT_TEMPLATE_TXT_GENERATE,
 )
-from llm.model_config import MODEL_CONFIGS, DEFAULT_LLM_TYPE
 
 
 def get_default_llm(llm_type=DEFAULT_LLM_TYPE):
@@ -41,8 +41,6 @@ def get_llm(llm_type=DEFAULT_LLM_TYPE):
             temperature=os.getenv("DEFAULT_TEMPERATURE"),
         )
 
-        oai = OpenAI(base_url=config["base_url"], api_key=config["api_key"])
-
         llm_embedding = OpenAIEmbeddings(
             base_url=config["base_url"],
             api_key=config["api_key"],
@@ -50,7 +48,7 @@ def get_llm(llm_type=DEFAULT_LLM_TYPE):
             dimensions=os.getenv("DEFAULT_DIMENSIONS"),
         )
 
-        return llm_chat, llm_embedding, oai
+        return llm_chat, llm_embedding
     except Exception:
         raise
 
@@ -87,17 +85,17 @@ def text_split_to_chucks(texts):
 
 class MessagesState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
-    relevance_score: Annotated[
-        Optional[str], "Relevance score of retrieved documents, 'yes' or 'no'"
-    ]
-    rewrite_count: Annotated[int, "Number of times query has been rewritten"]
+    relevance_score: Optional[str]
+    rewrite_count: Optional[int]
 
 
 class ParallelToolNode(ToolNode):
+
     def __init__(self, tool_config, max_workers=5):
         super().__init__(tool_config.get_tools())
         self.tool_config = tool_config
         self.max_workers = max_workers
+        breakpoint()
 
     def _run_single_tool(self, tool_call, tool_map):
         tool_name = tool_call["name"]
@@ -147,6 +145,8 @@ class ParallelToolNode(ToolNode):
 
 
 def route_after_tools(state, tool_config):
+    breakpoint()
+
     try:
         return tool_config.get_tool_route_config().get(
             state["messages"][-1].name, "generate"
@@ -158,8 +158,10 @@ def route_after_tools(state, tool_config):
 # todo:
 # 1. add user_info
 # 2. transfer hardcode to constant
-def agent(state, llm_chat, tool_config):
+def agent(state, config, llm_chat, tool_config):
+    breakpoint()
     question = state["messages"][-1]
+
     try:
         filtered = [
             msg
@@ -184,7 +186,14 @@ def agent(state, llm_chat, tool_config):
             | llm_chat_with_tool
         )
         response = agent_chain.invoke(
-            {"question": question, "messages": messages, "user_info": ""}
+            {
+                "question": question,
+                "messages": messages,
+                "user_info": {
+                    "user_id": config["configurable"]["user_id"],
+                    "thread_id": config["configurable"]["thread_id"],
+                },
+            }
         )
         return {"messages": [response]}
     except Exception:
@@ -193,10 +202,11 @@ def agent(state, llm_chat, tool_config):
 
 class DocumentRelevanceScore(BaseModel):
     # 定义binary_score字段，表示相关性评分，取值为"yes"或"no"
-    binary_score: str = Field(description="Relevance score 'yes' or 'no'")
+    binary_score: str
 
 
 def grade_documents(state, llm_chat):
+    breakpoint()
     if not state.get("messages"):
         return {
             "messages": [{"role": "system", "content": "状态为空，无法评分"}],
@@ -237,6 +247,7 @@ def grade_documents(state, llm_chat):
 
 
 def rewrite(state, llm_chat):
+    breakpoint()
     try:
         question = ""
         msg = reversed(state["messages"])
@@ -267,6 +278,7 @@ def rewrite(state, llm_chat):
 
 
 def generate(state, llm_chat):
+    breakpoint()
     try:
         question = ""
         for message in reversed(state["messages"]):
@@ -298,6 +310,7 @@ def generate(state, llm_chat):
 
 # 定义响应函数
 def graph_response(graph, user_input, config, tool_config):
+    breakpoint()
     try:
         # 启动状态图流处理用户输入
         events = graph.stream(
@@ -348,6 +361,7 @@ def graph_response(graph, user_input, config, tool_config):
 
 
 def route_after_grade(state):
+    breakpoint()
     if "messages" not in state or not isinstance(state["messages"], (list, tuple)):
         return "rewrite"
     # 获取状态中的 relevance_score，若不存在则返回 None
@@ -377,14 +391,20 @@ def route_after_grade(state):
 
 
 def create_graph(**kwargs):
+    llm_embedding = kwargs.get("llm_embedding")
     llm_chat = kwargs.get("llm_chat")
     tool_config = kwargs.get("tool_config")
-    checkpointer = DB(llm_chat)
+
+    checkpointer, store = create_db(llm_embedding)
+    checkpointer.setup()
+    store.setup()
 
     workflow = StateGraph(MessagesState)
     workflow.add_node(
         "agent",
-        lambda state: agent(state, llm_chat=llm_chat, tool_config=tool_config),
+        lambda state, config: agent(
+            state, config, llm_chat=llm_chat, tool_config=tool_config
+        ),
     )
     workflow.add_node("call_tools", ParallelToolNode(tool_config=tool_config))
     workflow.add_node("rewrite", lambda state: rewrite(state, llm_chat=llm_chat))
@@ -414,8 +434,10 @@ def create_graph(**kwargs):
     )
     workflow.add_edge(start_key="generate", end_key=END)
     workflow.add_edge(start_key="rewrite", end_key="agent")
+    graph = workflow.compile(checkpointer=checkpointer, store=store)
+    save_graph_visualization(graph)
 
-    return workflow.compile(checkpointer=checkpointer)
+    return graph
 
 
 def save_graph_visualization(graph, filename="./graph.png"):

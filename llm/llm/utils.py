@@ -1,6 +1,9 @@
 import os
 import re
+import traceback
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from html import escape
 from typing import Annotated, TypedDict, Sequence, Optional
 
 from langchain_core.messages import BaseMessage, ToolMessage
@@ -158,7 +161,7 @@ def route_after_tools(state, tool_config):
 # todo:
 # 1. add user_info
 # 2. transfer hardcode to constant
-def agent(state, config, llm_chat, tool_config):
+def agent(state, config, llm_chat, tool_config, store):
     breakpoint()
     question = state["messages"][-1]
 
@@ -170,7 +173,9 @@ def agent(state, config, llm_chat, tool_config):
         ]
         messages = filtered[-30:] if len(filtered) > 30 else filtered
         llm_chat_with_tool = llm_chat.bind_tools(tool_config.get_tools())
-
+        print("llm_chat_with_tool")
+        user_info = store_memory(question, config, store)
+        print(user_info)
         agent_chain = (
             ChatPromptTemplate.from_messages(
                 [
@@ -185,14 +190,12 @@ def agent(state, config, llm_chat, tool_config):
             )
             | llm_chat_with_tool
         )
+        print(question, messages, user_info)
         response = agent_chain.invoke(
             {
                 "question": question,
                 "messages": messages,
-                "user_info": {
-                    "user_id": config["configurable"]["user_id"],
-                    "thread_id": config["configurable"]["thread_id"],
-                },
+                "user_info": user_info,
             }
         )
         return {"messages": [response]}
@@ -355,6 +358,7 @@ def graph_response(graph, user_input, config, tool_config):
                     else:
                         print(f"Assistant: {content}")
                 else:
+                    print(value, last_message)
                     print("Assistant: 未获取到相关回复")
     except Exception:
         print("Assistant: 处理响应时发生未知错误")
@@ -396,15 +400,11 @@ def create_graph(**kwargs):
     tool_config = kwargs.get("tool_config")
 
     checkpointer, store = create_db(llm_embedding)
-    checkpointer.setup()
-    store.setup()
 
     workflow = StateGraph(MessagesState)
     workflow.add_node(
         "agent",
-        lambda state, config: agent(
-            state, config, llm_chat=llm_chat, tool_config=tool_config
-        ),
+        lambda state, config: agent(state, config, llm_chat, tool_config, store),
     )
     workflow.add_node("call_tools", ParallelToolNode(tool_config=tool_config))
     workflow.add_node("rewrite", lambda state: rewrite(state, llm_chat=llm_chat))
@@ -443,3 +443,21 @@ def create_graph(**kwargs):
 def save_graph_visualization(graph, filename="./graph.png"):
     with open(filename, "wb") as f:
         f.write(graph.get_graph().draw_mermaid_png())
+
+
+def store_memory(question, config, store):
+    namespace = ("memories", config["configurable"]["user_id"])
+    breakpoint()
+    try:
+        print(namespace, question.content)
+        memories = store.search(namespace, query=str(question.content))
+        print(memories)
+        user_info = "\n".join([d.value["data"] for d in memories])
+        print(user_info, question)
+        if "记住" in question.content.lower():
+            memory = escape(question.content)
+            store.put(namespace, str(uuid.uuid4()), {"data": memory})
+        return user_info
+    except Exception:
+        print(traceback.format_exc())
+        raise

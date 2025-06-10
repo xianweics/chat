@@ -14,9 +14,13 @@ def create_db(llm_embedding):
         timeout=10,
     )
     connection_pool.open()
+
+    checkpointer = PostgresSaver(connection_pool)
+    checkpointer.setup()
+
     store = PostgresStore(
         conn=connection_pool,
         index={"dims": int(os.getenv("DEFAULT_DIMENSIONS")), "embed": llm_embedding},
     )
-    checkpointer = PostgresSaver(connection_pool)
+    store.setup()
     return checkpointer, store

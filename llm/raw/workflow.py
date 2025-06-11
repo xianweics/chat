@@ -3,19 +3,21 @@ import os
 import sys
 import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from html import escape
 from typing import Literal, Annotated, Sequence
-from typing_extensions import TypedDict
-from langchain_core.prompts import PromptTemplate, ChatPromptTemplate
+
 from langchain_core.messages import BaseMessage
+from langchain_core.messages import ToolMessage
+from langchain_core.prompts import PromptTemplate, ChatPromptTemplate
+from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import tools_condition, ToolNode
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from langchain_core.messages import ToolMessage
-from langgraph.graph import StateGraph, START, END
 from langgraph.store.postgres import PostgresStore
-from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.store.postgres.base import PostgresIndexConfig
 from pydantic import BaseModel
+from typing_extensions import TypedDict
 
 from utils.tools_config import ToolConfig
 from utils.utils import save_graph_visualization
@@ -140,6 +142,7 @@ def create_chain(llm_chat, template_file, structured_output=None):
         create_chain.lock = threading.Lock()
 
     try:
+        prompt_template = None
         if template_file in create_chain.prompt_cache:
             prompt_template = create_chain.prompt_cache[template_file]
             logger.info(f"Using cached prompt template for {template_file}")
@@ -238,7 +241,6 @@ def rewrite(state, llm_chat):
 
 def generate(state, llm_chat):
     logger.info("Generating final response")
-    # 尝试执行以下代码块
     try:
         question = get_latest_question(state)
         context = state["messages"][-1].content
@@ -326,9 +328,13 @@ def create_graph(connection_pool, llm_chat, llm_embedding, tool_config):
         logger.error(f"Failed to setup PostgresSaver: {e}")
         sys.exit(-1)
     try:
+        index: PostgresIndexConfig = {
+            "dims": int(os.getenv("DEFAULT_DIMENSIONS")),
+            "embed": llm_embedding,
+        }
         store = PostgresStore(
             connection_pool,
-            index={"dims": os.getenv("DEFAULT_DIMENSIONS"), "embed": llm_embedding},
+            index=index,
         )
         store.setup()
         logger.info(f"Succeed to setup PostgresStore")
@@ -378,69 +384,3 @@ def create_graph(connection_pool, llm_chat, llm_embedding, tool_config):
     save_graph_visualization(graph)
 
     return graph
-
-
-# 定义响应函数
-def graph_response(
-    graph: StateGraph, user_input: str, config: dict, tool_config
-) -> None:
-    """处理用户输入并输出响应，区分工具输出和大模型输出，支持多工具。
-
-    Args:
-        graph: 状态图实例。
-        user_input: 用户输入。
-        config: 运行时配置。
-    """
-    try:
-        # 启动状态图流处理用户输入
-        events = graph.stream(
-            {"messages": [{"role": "user", "content": user_input}], "rewrite_count": 0},
-            config,
-        )
-        # 遍历事件流
-        for event in events:
-            # 遍历事件中的值
-            for value in event.values():
-                # 检查是否有有效消息
-                if "messages" not in value or not isinstance(value["messages"], list):
-                    logger.warning("No valid messages in response")
-                    continue
-
-                # 获取最后一条消息
-                last_message = value["messages"][-1]
-
-                # 检查消息是否包含工具调用
-                if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-                    # 遍历工具调用
-                    for tool_call in last_message.tool_calls:
-                        # 检查工具调用是否为字典且包含名称
-                        if isinstance(tool_call, dict) and "name" in tool_call:
-                            # 记录工具调用日志
-                            logger.info(f"Calling tool: {tool_call['name']}")
-                    # 跳过本次循环
-                    continue
-
-                # 检查消息是否有内容
-                if hasattr(last_message, "content"):
-                    content = last_message.content
-
-                    # 情况1：工具输出（动态检查工具名称）
-                    if (
-                        hasattr(last_message, "name")
-                        and last_message.name in tool_config.get_tool_names()
-                    ):
-                        tool_name = last_message.name
-                        print(f"Tool Output [{tool_name}]: {content}")
-                    # 情况2：大模型输出（非工具消息）
-                    else:
-                        print(f"Assistant: {content}")
-                else:
-                    # 如果消息没有内容，可能是中间状态
-                    logger.info("Message has no content, skipping")
-                    print("Assistant: 未获取到相关回复")
-    except ValueError as ve:
-        logger.error(f"Value error in response processing: {ve}")
-        print("Assistant: 处理响应时发生值错误")
-    except Exception as e:
-        logger.error(f"Error processing response: {e}")
-        print("Assistant: 处理响应时发生未知错误")

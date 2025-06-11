@@ -3,6 +3,7 @@ import os
 import sys
 
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from pydantic import SecretStr
 
 log = logging.getLogger(__name__)
 
@@ -37,16 +38,16 @@ def get_llm(llm_type=DEFAULT_LLM_TYPE):
     try:
         llm_chat = ChatOpenAI(
             base_url=config["base_url"],
-            api_key=config["api_key"],
+            api_key=SecretStr(config["api_key"]),
             model=config["chat_model"],
-            temperature=os.getenv("DEFAULT_TEMPERATURE"),
+            temperature=float(os.getenv("DEFAULT_TEMPERATURE")),
         )
 
         llm_embedding = OpenAIEmbeddings(
             base_url=config["base_url"],
-            api_key=config["api_key"],
+            api_key=SecretStr(config["api_key"]),
             model=config["embedding_model"],
-            dimensions=os.getenv("DEFAULT_DIMENSIONS"),
+            dimensions=int(os.getenv("DEFAULT_DIMENSIONS")),
         )
 
         return llm_chat, llm_embedding

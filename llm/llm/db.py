@@ -1,5 +1,4 @@
 import os
-
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.store.postgres import PostgresStore
 from psycopg_pool import ConnectionPool

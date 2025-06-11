@@ -17,9 +17,9 @@ from pdfminer.high_level import extract_pages
 from pdfminer.layout import LTTextContainer
 from pydantic import BaseModel
 
-from llm.llm.db import create_db
-from llm.llm.model_config import MODEL_CONFIGS, DEFAULT_LLM_TYPE
-from llm.llm.prompts.config import (
+from db import create_db
+from model_config import MODEL_CONFIGS, DEFAULT_LLM_TYPE
+from prompts.config import (
     PROMPT_TEMPLATE_TXT_REWRITE,
     PROMPT_TEMPLATE_TXT_GRADE,
     PROMPT_TEMPLATE_TXT_AGENT,
@@ -191,6 +191,7 @@ def agent(state, config, llm_chat, tool_config, store):
             | llm_chat_with_tool
         )
         print(question, messages, user_info)
+        breakpoint()
         response = agent_chain.invoke(
             {
                 "question": question,
@@ -200,6 +201,7 @@ def agent(state, config, llm_chat, tool_config, store):
         )
         return {"messages": [response]}
     except Exception:
+        print(traceback.format_exc())
         return {"messages": [{"role": "system", "content": "处理请求时出错"}]}
 
 
@@ -447,15 +449,14 @@ def save_graph_visualization(graph, filename="./graph.png"):
 
 def store_memory(question, config, store):
     namespace = ("memories", config["configurable"]["user_id"])
-    breakpoint()
     try:
-        print(namespace, question.content)
-        memories = store.search(namespace, query=str(question.content))
+        memories = store.search(namespace, query=question.content)
         print(memories)
         user_info = "\n".join([d.value["data"] for d in memories])
         print(user_info, question)
         if "记住" in question.content.lower():
             memory = escape(question.content)
+            # 使用 put 方法存储数据，指定 namespace
             store.put(namespace, str(uuid.uuid4()), {"data": memory})
         return user_info
     except Exception:

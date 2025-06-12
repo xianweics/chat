@@ -222,7 +222,7 @@ async def handle_stream_response(user_input, config):
             stream_data = graph.stream(
                 {
                     "messages": [{"role": "user", "content": user_input}],
-                    "rewrite_count": 0,
+                    "rewrite_count": 0
                 },
                 config,
                 stream_mode="messages",

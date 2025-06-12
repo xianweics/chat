@@ -2,9 +2,7 @@ import logging
 import os
 import sys
 import threading
-import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from html import escape
 from typing import Literal, Annotated, Sequence
 
 from langchain_core.messages import BaseMessage
@@ -14,8 +12,6 @@ from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import tools_condition, ToolNode
-from langgraph.store.postgres import PostgresStore
-from langgraph.store.postgres.base import PostgresIndexConfig
 from pydantic import BaseModel
 from typing_extensions import TypedDict
 
@@ -119,22 +115,6 @@ def filter_messages(messages):
     return filtered[-num:] if len(filtered) > num else filtered
 
 
-def store_memory(question, config, store):
-    namespace = ("memories", config["configurable"]["user_id"])
-    try:
-        memories = store.search(namespace, query=question.content)
-        user_info = "\n".join([d.value["data"] for d in memories])
-
-        if "记住" in question.content.lower():
-            memory = escape(question.content)
-            store.put(namespace, str(uuid.uuid4()), {"data": memory})
-            logger.info(f"Stored memory: {memory}")
-
-        return user_info
-    except Exception as e:
-        logger.error(f"Error in store_memory: {e}")
-        return None
-
 
 def create_chain(llm_chat, template_file, structured_output=None):
     if not hasattr(create_chain, "prompt_cache"):
@@ -164,21 +144,19 @@ def create_chain(llm_chat, template_file, structured_output=None):
         raise
 
 
-def agent(state, config, store, llm_chat, tool_config):
+def agent(state,llm_chat, tool_config):
     logger.info("Agent processing user query")
     try:
         question = state["messages"][-1]
         logger.info(f"agent question:{question}")
         llm_chat_with_tool = llm_chat.bind_tools(tool_config.get_tools())
-
         agent_chain = create_chain(
             llm_chat_with_tool, os.getenv("PROMPT_TEMPLATE_TXT_AGENT")
         )
         response = agent_chain.invoke(
             {
                 "question": question,
-                "messages": filter_messages(state["messages"]),
-                "userInfo": store_memory(question, config, store),
+                "messages": filter_messages(state["messages"])
             }
         )
         logger.info(f"Agent response: {response}")
@@ -328,25 +306,11 @@ def create_graph(connection_pool, llm_chat, llm_embedding, tool_config):
         logger.error(f"Failed to setup PostgresSaver: {e}")
         sys.exit(-1)
     try:
-        index: PostgresIndexConfig = {
-            "dims": int(os.getenv("DEFAULT_DIMENSIONS")),
-            "embed": llm_embedding,
-        }
-        store = PostgresStore(
-            connection_pool,
-            index=index,
-        )
-        store.setup()
-        logger.info(f"Succeed to setup PostgresStore")
-    except Exception as e:
-        logger.error(f"Failed to setup PostgresStore: {e}")
-        sys.exit(-1)
-    try:
         workflow = StateGraph(MessagesState)
         workflow.add_node(
             "agent",
-            lambda state, config: agent(
-                state, config, store=store, llm_chat=llm_chat, tool_config=tool_config
+            lambda state: agent(
+                 state, llm_chat=llm_chat, tool_config=tool_config
             ),
         )
         workflow.add_node(
@@ -380,7 +344,7 @@ def create_graph(connection_pool, llm_chat, llm_embedding, tool_config):
         logger.error(f"Failed to create workflow: {e}")
         sys.exit(-1)
 
-    graph = workflow.compile(checkpointer=checkpointer, store=store)
+    graph = workflow.compile(checkpointer=checkpointer)
     save_graph_visualization(graph)
 
     return graph

@@ -1,9 +1,12 @@
+import json
+
 from dotenv import load_dotenv
+
+from llm.raw.workflow_config import WorkFlow
 
 load_dotenv()
 from langgraph.graph.state import CompiledStateGraph
 import re
-import json
 from contextlib import asynccontextmanager
 from typing import List
 from fastapi import FastAPI, HTTPException, Request
@@ -18,10 +21,9 @@ from workflow import create_graph
 from logger import load_logger
 
 log = load_logger()
-from utils.tools_config import ToolConfig
 from utils.db import run_db
 from utils.llms import get_llm
-from utils.tools_config import get_tools
+from utils.tools import get_tools
 
 
 class Message(BaseModel):
@@ -80,24 +82,22 @@ def format_response(response):
 
 
 graph: CompiledStateGraph
-tool_config: ToolConfig
 
 
 @asynccontextmanager
 async def lifespan(app):
-    global graph, tool_config
+    global graph
 
     llm_chat, llm_embedding = get_llm()
     tools = get_tools(llm_embedding)
-    tool_config = ToolConfig(tools)
     db_connection_pool = run_db()
-    graph = create_graph(db_connection_pool, llm_chat, llm_embedding, tool_config)
+    graph = create_graph(db_connection_pool, llm_chat, tools)
 
     yield
     if db_connection_pool and not db_connection_pool.closed:
         db_connection_pool.close()
-        log.info("Database connection pool closed")
-    log.info("The service has been shut down")
+        print("Database connection pool closed")
+    print("The service has been shut down")
 
 
 app = FastAPI(lifespan=lifespan)
@@ -147,31 +147,15 @@ async def handle_non_stream_response(user_input, config):
                         # 验证工具调用是否为字典且包含名称
                         if isinstance(tool_call, dict) and "name" in tool_call:
                             # 记录工具调用日志
-                            log.info(f"Calling tool: {tool_call['name']}")
+                            print(f"Calling tool: {tool_call['name']}")
                     # 跳过本次循环，继续处理下一事件
                     continue
 
                 # 检查消息是否包含内容
                 if hasattr(last_message, "content"):
-                    # 将消息内容赋值给 content
                     content = last_message.content
-
-                    # 检查是否为工具输出（基于工具名称）
-                    if (
-                        hasattr(last_message, "name")
-                        and last_message.name in tool_config.get_tool_names()
-                    ):
-                        # 获取工具名称
-                        tool_name = last_message.name
-                        # 记录工具输出日志
-                        log.info(f"Tool Output [{tool_name}]: {content}")
-                    # 处理大模型输出（非工具消息）
-                    else:
-                        # 记录最终响应日志
-                        log.info(f"Final Response is: {content}")
                 else:
-                    # 记录无内容的消息日志，跳过处理
-                    log.info("Message has no content, skipping")
+                    print("Message has no content, skipping")
     except Exception as e:
         log.error(f"Error processing response: {e}")
 
@@ -180,7 +164,7 @@ async def handle_non_stream_response(user_input, config):
         str(format_response(content)) if content else "No response generated"
     )
     # 记录格式化后的响应日志
-    log.info(f"Results for Formatting: {formatted_response}")
+    print(f"Results for Formatting: {formatted_response}")
 
     # 构造返回给客户端的响应对象
     try:
@@ -210,39 +194,9 @@ async def handle_non_stream_response(user_input, config):
         )
 
     # 记录发送给客户端的响应内容日志
-    log.info(f"Send response content: \n{response}")
+    print(f"Send response content: \n{response}")
     # 返回 JSON 格式的响应对象
     return JSONResponse(content=response.model_dump())
-
-
-async def handle_stream_response(user_input, config):
-    async def generate_stream():
-        try:
-            chunk_id = str(uuid.uuid4())
-            stream_data = graph.stream(
-                {
-                    "messages": [{"role": "user", "content": user_input}],
-                    "rewrite_count": 0
-                },
-                config,
-                stream_mode="messages",
-            )
-            for message_chunk, metadata in stream_data:
-                try:
-                    node_name = metadata.get("langgraph_node") if metadata else None
-                    if node_name in ["generate", "agent"]:
-                        chunk = getattr(message_chunk, "content", "")
-                        log.info(f"Streaming chunk from {node_name}: {chunk}")
-                        yield f"data: {json.dumps({'id': chunk_id, 'created': int(time.time()), 'chunk': {'content': chunk, 'finish': False}})}\n\n"
-                except Exception as chunk_error:
-                    log.error(f"Error processing stream chunk: {chunk_error}")
-                    continue
-            yield f"data: {json.dumps({'id': chunk_id, 'created': int(time.time()), 'chunk': {'content': '', 'finish': True}})}\n\n"
-        except Exception as stream_error:
-            log.error(f"Stream generation error: {stream_error}")
-            yield f"data: {json.dumps({'error': 'Processing failed'})}\n\n"
-
-    return StreamingResponse(generate_stream(), media_type="text/event-stream")
 
 
 class ChatCompletionRequest(BaseModel):
@@ -252,25 +206,51 @@ class ChatCompletionRequest(BaseModel):
     thread_id: str
 
 
-@app.post("/v1/chat/completions")
+def generate_stream(user_input, config):
+    try:
+        chunk_id = str(uuid.uuid4())
+        stream_data = graph.stream(
+            {
+                "messages": [{"role": "user", "content": user_input}],
+                "rewrite_count": 0,
+            },
+            config,
+            stream_mode="messages",
+        )
+        for message, metadata in stream_data:
+            node_name = metadata.get("langgraph_node") if metadata else None
+            if node_name in [WorkFlow.GENERATE, WorkFlow.AGENT]:
+                chunk = getattr(message, "content")
+                if chunk:
+                    print(f"Streaming chunk from {node_name}: {chunk}")
+                    yield f"data: {json.dumps({'id': chunk_id, 'chunk': {'content': chunk, 'finish': False}})}\n\n"
+
+        yield f"data: {json.dumps({'id': chunk_id, 'chunk': {'content': '', 'finish': True}})}\n\n"
+    except Exception as stream_error:
+        log.error(f"Stream generation error: {stream_error}")
+
+
+@app.post("/chat")
 async def chat_completions(request: Request, body: ChatCompletionRequest):
-    breakpoint()
     messages = body.messages
     user_id = body.user_id
     try:
         if not messages or not user_id or not messages[-1].content:
-            log.error("Invalid request: Empty or invalid messages")
-            raise HTTPException(
-                status_code=400, detail="Messages cannot be empty or invalid"
-            )
+            log.error("Invalid request")
+            raise HTTPException(status_code=400, detail="Invalid request")
         user_input = messages[-1].content
-        log.info(f"The user's user_input is: {user_input}")
+        print(f"The user's user_input is: {user_input}")
 
         config = {"configurable": {"thread_id": body.thread_id, "user_id": user_id}}
 
-        if body.stream:
-            return await handle_stream_response(user_input, config)
-        return await handle_non_stream_response(user_input, config)
+        return (
+            StreamingResponse(
+                generate_stream(user_input, config),
+                media_type="text/event-stream",
+            )
+            if body.stream
+            else await handle_non_stream_response(user_input, config)
+        )
 
     except Exception as e:
         log.error(f"Error handling chat completion:\n\n {str(e)}")
@@ -278,4 +258,4 @@ async def chat_completions(request: Request, body: ChatCompletionRequest):
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8012, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8012)

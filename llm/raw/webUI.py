@@ -83,9 +83,9 @@ def send_message(user_message, history, user_id, conversation_id, username):
                     if line:
                         json_str = line.decode("utf-8").strip("data: ")
                         if not json_str:
-                            logger.info(f"收到空字符串，跳过...")
+                            print(f"收到空字符串，跳过...")
                             continue
-                        # logger.info(f"接收数据json_str:{json_str}")
+                        # print(f"接收数据json_str:{json_str}")
                         if json_str.startswith("{") and json_str.endswith("}"):
                             try:
                                 response_data = json.loads(json_str)
@@ -95,7 +95,7 @@ def send_message(user_message, history, user_id, conversation_id, username):
                                     )
                                     # 实时格式化响应
                                     formatted_content = format_response(content)
-                                    logger.info(f"接收数据:{formatted_content}")
+                                    print(f"接收数据:{formatted_content}")
                                     assistant_response += formatted_content
                                     updated_history = history[:-1] + [
                                         ["assistant", assistant_response]
@@ -107,7 +107,7 @@ def send_message(user_message, history, user_id, conversation_id, username):
                                     )
                                     == "stop"
                                 ):
-                                    logger.info(f"接收JSON数据结束")
+                                    print(f"接收JSON数据结束")
                                     break
                             except json.JSONDecodeError as e:
                                 logger.error(f"JSON解析错误: {e}")
@@ -116,11 +116,11 @@ def send_message(user_message, history, user_id, conversation_id, username):
                                 ]
                                 break
                         else:
-                            logger.info(f"无效JSON格式: {json_str}")
+                            print(f"无效JSON格式: {json_str}")
                     else:
-                        logger.info(f"收到空行")
+                        print(f"收到空行")
                 else:
-                    logger.info("流式响应结束但未明确结束")
+                    print("流式响应结束但未明确结束")
                     yield history[:-1] + [["assistant", "未收到完整响应。"]]
         except requests.RequestException as e:
             logger.error(f"请求失败: {e}")

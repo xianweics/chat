@@ -26,7 +26,7 @@ CHROMADB_COLLECTION_HEALTH = "health"
 
 # tool description
 TOOL_DESCRIPTION_HEALTH = "这是健康档案查询工具，搜索并返回有关用户的健康档案信息。"
-TOOL_DESCRIPTION_DEEPSEEK = "这是Deep-seek查询工具。"
+TOOL_DESCRIPTION_DEEPSEEK = "当用户询问关于 Deep-seek 模型的具体信息时，使用此工具搜索并返回相关信息。这个工具可以访问 Deep-seek 的详细文档。"
 TOOL_DESCRIPTION_MULTIPLY = "这是计算两个数的乘积的工具，返回最终的计算结果。"
 
 # file path

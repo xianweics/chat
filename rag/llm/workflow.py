@@ -124,7 +124,6 @@ def agent(state, llm_chat, tools):
 
 def grade_documents(state, llm_chat):
     print(f"start {WorkFlow.GRADE_DOCS}")
-    breakpoint()
     rewrite_count = state.get("rewrite_count")
     try:
         is_relevance = (

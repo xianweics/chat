@@ -201,7 +201,6 @@ def generate_stream(user_input, config):
             config,
             stream_mode="messages",
         )
-        breakpoint()
         for message, metadata in stream_data:
             node_name = metadata.get("langgraph_node") if metadata else None
             if node_name in [WorkFlow.GENERATE, WorkFlow.AGENT]:

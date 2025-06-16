@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from rag.utils.config import (
+from utils.config import (
     TOOL_NAME_DEEPSEEK,
     TOOL_NAME_MULTIPLY,
     TOOL_NAME_HEALTH,

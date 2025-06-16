@@ -3,28 +3,26 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
-from rag.logger import load_logger
+from logger import load_logger
 
 log = load_logger()
-
-from langchain_core.messages import HumanMessage
 from langgraph.constants import END
 import json
 from langgraph.graph.state import CompiledStateGraph
 from contextlib import asynccontextmanager
-from typing import List
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.responses import StreamingResponse
 import uvicorn
 import uuid
 from typing import Optional
 from pydantic import BaseModel
+from langchain_core.messages import HumanMessage
 
 from workflow import create_graph
 from utils.db import run_db
 from utils.llms import get_llm
 from utils.tools import get_tools
-from rag.workflow_config import WorkFlow
+from workflow_config import WorkFlow
 
 
 class Message(BaseModel):
@@ -36,12 +34,13 @@ graph: CompiledStateGraph
 
 
 @asynccontextmanager
-async def lifespan(_):
+async def lifespan(app):
     global graph
 
     llm_chat, llm_embedding = get_llm()
     tools = get_tools(llm_embedding)
     db_pool = run_db()
+    app.state.db_pool = db_pool
     graph = create_graph(db_pool, llm_chat, tools)
 
     yield
@@ -118,7 +117,7 @@ def stream_response(user_input, config):
 
 
 class CreateChatRequest(BaseModel):
-    messages: List[Message]
+    content: str
     stream: Optional[bool] = False
     user_id: str
     thread_id: str
@@ -131,24 +130,24 @@ class FetchChatRequest(BaseModel):
 
 @app.post("/chat")
 async def create_chat(_: Request, body: CreateChatRequest):
-    messages = body.messages
+    content = body.content
     user_id = body.user_id
+    thread_id = body.thread_id
     try:
-        if not messages or not user_id or not messages[-1].content:
+        if not content or not user_id or not content:
             log.error("Invalid request")
             raise HTTPException(status_code=400, detail="Invalid request")
-        user_input = messages[-1].content
-        log.info(f"The user's user_input is: {user_input}")
+        log.info(f"The user's user_input is: {content}")
 
-        config = {"configurable": {"thread_id": body.thread_id, "user_id": user_id}}
+        config = {"configurable": {"thread_id": thread_id, "user_id": user_id}}
 
         return (
             StreamingResponse(
-                stream_response(user_input, config),
+                stream_response(content, config),
                 media_type="text/event-stream",
             )
             if body.stream
-            else await non_stream_response(user_input, config)
+            else await non_stream_response(content, config)
         )
 
     except Exception as e:
@@ -156,9 +155,52 @@ async def create_chat(_: Request, body: CreateChatRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+async def get_db_pool(request: Request):
+    return request.app.state.db_pool
+
+
+def extract_message_contents(data):
+    result = []
+
+    for item in data:
+        for _, write_data in item.get("metadata", dict).get("writes", {}).items():
+            breakpoint()
+            for message in write_data.get("messages", list):
+                result.append(
+                    {
+                        "type": message["kwargs"]["type"],
+                        "content": message["kwargs"]["content"],
+                    }
+                )
+    return result
+
+
 @app.get("/chat")
-async def fetch_chat(_: Request, body: FetchChatRequest):
-    config = {"configurable": {"thread_id": body.thread_id, "user_id": body.user_id}}
+async def fetch_chat(
+    _: Request,
+    thread_id: str,
+    user_id: str,
+    db_pool: any = Depends(get_db_pool),
+):
+    try:
+        with db_pool.getconn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT thread_id, metadata FROM checkpoints WHERE thread_id = %s",
+                    (thread_id,),
+                )
+                all_data = cur.fetchall()
+                if len(all_data) == 0:
+                    return []
+                columns = [desc[0] for desc in cur.description]
+                return extract_message_contents(
+                    data
+                    for data in [dict(zip(columns, row)) for row in all_data]
+                    if data.get("metadata").get("user_id") == user_id
+                )
+    except Exception as e:
+        log.error(f"Error fetching chat: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":

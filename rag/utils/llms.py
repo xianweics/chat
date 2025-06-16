@@ -51,6 +51,7 @@ def get_llm(llm_type=DEFAULT_LLM_TYPE):
             api_key=SecretStr(config["api_key"]),
             model=config["embedding_model"],
             check_embedding_ctx_length=False,
+            dimensions=1536,
         )
 
         return llm_chat, llm_embedding

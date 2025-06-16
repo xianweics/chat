@@ -2,7 +2,5 @@ chat.iml
 node_modules
 .idea
 *.iml
-private.pem
-public.pem
 /llm/chromaDB/
-/llm/L1-Project-2/
+/.vscode/

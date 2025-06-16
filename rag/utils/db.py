@@ -35,20 +35,20 @@ def monitor_connection_pool(db_connection_pool, interval=DB_MONITOR_INTERVAL):
 
 
 def run_db():
-    connection_pool = ConnectionPool(
-        conninfo=os.getenv("DB_URI"),
-        max_size=DB_CONNECT_MAX,
-        min_size=DB_CONNECT_MIN,
-        kwargs={
-            "autocommit": True,
-            "connect_timeout": DB_CONNECT_TIMEOUT,
-        },
-        timeout=DB_TIMEOUT,
-    )
     try:
-        connection_pool.open()
-        monitor_connection_pool(connection_pool)
+        pool = ConnectionPool(
+            conninfo=os.getenv("DB_URI"),
+            min_size=DB_CONNECT_MIN,
+            max_size=DB_CONNECT_MAX,
+            kwargs={
+                "autocommit": True,
+                "connect_timeout": DB_CONNECT_TIMEOUT,
+            },
+            timeout=DB_TIMEOUT,
+        )
+        pool.open()
+        monitor_connection_pool(pool)
+        return pool
     except Exception as e:
         log.error(f"Failed to open connection pool: {e}")
         sys.exit(1)
-    return connection_pool

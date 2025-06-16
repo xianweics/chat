@@ -2,7 +2,7 @@ const jwt = require("jsonwebtoken");
 const {readFileSync} = require("fs");
 const {resolve} = require("path");
 
-const publicKey = readFileSync(resolve(__dirname, "../../public.pem"));
+const publicKey = readFileSync(resolve(__dirname, "../public.pem"));
 
 const authenticateJWT = (req, res, next) => {
   const authHeader = req.headers.authorization;

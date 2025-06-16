@@ -5,7 +5,7 @@ const {resolve} = require('path');
 
 const {User} = require('../db/postgres-server');
 const {REGISTER_URL, LOGIN_URL} = require('./path');
-const privateKey = readFileSync(resolve(__dirname, '../../private.pem'));
+const privateKey = readFileSync(resolve(__dirname, '../private.pem'));
 
 const authRoute = app => {
   app.post(REGISTER_URL, async (req, res) => {

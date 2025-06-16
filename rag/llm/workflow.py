@@ -3,7 +3,7 @@ import sys
 import threading
 from typing import Annotated, Sequence
 
-from langchain_core.messages import BaseMessage, SystemMessage, ToolMessage
+from langchain_core.messages import BaseMessage, ToolMessage
 from langchain_core.prompts import (
     PromptTemplate,
     ChatPromptTemplate,
@@ -43,6 +43,7 @@ class DocumentRelevanceScore(BaseModel):
 
 
 def tool_calls(state, tools):
+    print(f"{WorkFlow.CALL_TOOLS}: start")
     messages = []
     next_nodes = []
     for tool_call in state["messages"][-1].tool_calls:
@@ -74,10 +75,10 @@ def create_chain(llm_chat, template_file, structured_output=None):
         prompt_template = None
         if template_file in create_chain.prompt_cache:
             prompt_template = create_chain.prompt_cache[template_file]
-            print(f"Using cached prompt template for {template_file}")
+            print(f"Using cached prompt template: {template_file}")
         else:
             with create_chain.lock:
-                print(f"Loading and caching prompt template from {template_file}")
+                print(f"Loading and caching prompt template: {template_file}")
                 prompt_template = create_chain.prompt_cache[template_file] = (
                     PromptTemplate.from_file(template_file, encoding="utf-8")
                 )
@@ -96,7 +97,7 @@ def create_chain(llm_chat, template_file, structured_output=None):
 
 
 def agent(state, llm_chat, tools):
-    print(f"start {WorkFlow.AGENT}")
+    print(f"{WorkFlow.AGENT}: start")
     try:
         llm_chat_with_tool = llm_chat.bind_tools(tools)
         agent_chain = create_chain(
@@ -116,14 +117,11 @@ def agent(state, llm_chat, tools):
         }
     except Exception as e:
         logger.error(f"{WorkFlow.AGENT} error: {e}")
-        return {
-            "messages": [SystemMessage(f"{WorkFlow.AGENT} error", workflow_error=True)],
-            "next_nodes": [END],
-        }
+        raise {"next_nodes": [END]}
 
 
 def grade_documents(state, llm_chat):
-    print(f"start {WorkFlow.GRADE_DOCS}")
+    print(f"{WorkFlow.GRADE_DOCS}: start")
     rewrite_count = state.get("rewrite_count")
     try:
         is_relevance = (
@@ -139,8 +137,7 @@ def grade_documents(state, llm_chat):
                 }
             )
             .is_relevance
-        ).lower() == "false"
-        print(f"{WorkFlow.GRADE_DOCS} score: {is_relevance}")
+        )
         return (
             {
                 "next_nodes": [WorkFlow.GENERATE],
@@ -153,12 +150,7 @@ def grade_documents(state, llm_chat):
     except Exception as e:
         logger.error(f"{WorkFlow.GRADE_DOCS} error: {e}")
         if rewrite_count >= 3:
-            return {
-                "messages": [
-                    SystemMessage(f"{WorkFlow.GRADE_DOCS} error", workflow_error=True)
-                ],
-                "next_nodes": [END],
-            }
+            raise {"next_nodes": [END]}
         else:
             return {
                 "next_nodes": [WorkFlow.REWRITE],
@@ -166,12 +158,12 @@ def grade_documents(state, llm_chat):
 
 
 def rewrite(state, llm_chat):
-    breakpoint()
+    print(f"{WorkFlow.REWRITE}: start")
     try:
         question = get_latest_question(state)
         rewrite_chain = create_chain(llm_chat, PROMPT_TEMPLATE_REWRITE_PATH)
         response = rewrite_chain.invoke({"question": question})
-        print(f"{WorkFlow.REWRITE} question:{response}")
+        print(f"{WorkFlow.REWRITE} question: {response}")
         rewrite_count = state.get("rewrite_count") + 1
         print(f"{WorkFlow.REWRITE} count: {rewrite_count}")
         return {
@@ -181,16 +173,11 @@ def rewrite(state, llm_chat):
         }
     except Exception as e:
         logger.error(f"{WorkFlow.REWRITE} error: {e}")
-        return {
-            "messages": [
-                SystemMessage(f"{WorkFlow.REWRITE} error", workflow_error=True)
-            ],
-            "next_nodes": [END],
-        }
+        raise {"next_nodes": [END]}
 
 
 def generate(state, llm_chat):
-    breakpoint()
+    print(f"{WorkFlow.GENERATE}: start")
     try:
         response = create_chain(llm_chat, PROMPT_TEMPLATE_GENERATE_PATH).invoke(
             {
@@ -198,7 +185,6 @@ def generate(state, llm_chat):
                 "question": get_latest_question(state),
             }
         )
-        print(f"{WorkFlow.GENERATE} response: {response}")
         return {
             "messages": [response],
             "next_nodes": [END],
@@ -206,16 +192,13 @@ def generate(state, llm_chat):
     except Exception as e:
         logger.error(f"{WorkFlow.GENERATE} error: {e}")
         return {
-            "messages": [
-                SystemMessage(f"{WorkFlow.GENERATE} error", workflow_error=True)
-            ],
             "next_nodes": [END],
         }
 
 
-def create_graph(connection_pool, llm_chat, tools):
+def create_graph(db_pool, llm_chat, tools):
     try:
-        checkpointer = PostgresSaver(connection_pool)
+        checkpointer = PostgresSaver(db_pool)
         checkpointer.setup()
     except Exception as e:
         logger.error(f"Failed to setup PostgresSaver: {e}")

@@ -9,7 +9,7 @@ BACKUP_COUNT = 3
 
 def load_logger():
     logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.WARNING)
 
     handler = ConcurrentRotatingFileHandler(
         filename=LOG_FILE,

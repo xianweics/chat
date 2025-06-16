@@ -10,7 +10,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pdfminer.high_level import extract_pages
 from pdfminer.layout import LTTextContainer
 
-from rag.llm.utils.config import (
+from rag.utils.config import (
     TOOL_NAME_MULTIPLY,
     TOOL_NAME_HEALTH,
     TOOL_NAME_DEEPSEEK,

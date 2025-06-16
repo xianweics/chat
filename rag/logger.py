@@ -1,15 +1,18 @@
 import logging
+from pathlib import Path
 
 from concurrent_log_handler import ConcurrentRotatingFileHandler
 
-LOG_FILE = "./app.log"
 MAX_BYTES = 5 * 1024 * 1024
 BACKUP_COUNT = 3
+
+pp = Path(__file__).parent
+LOG_FILE = str(Path(f"{pp}/app.log"))
 
 
 def load_logger():
     logger = logging.getLogger()
-    logger.setLevel(logging.WARNING)
+    logger.setLevel(logging.INFO)
 
     handler = ConcurrentRotatingFileHandler(
         filename=LOG_FILE,

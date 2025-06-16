@@ -1,3 +1,5 @@
+import os
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -22,7 +24,7 @@ from workflow import create_graph
 from utils.db import run_db
 from utils.llms import get_llm
 from utils.tools import get_tools
-from rag.llm.workflow_config import WorkFlow
+from rag.workflow_config import WorkFlow
 
 
 class Message(BaseModel):
@@ -45,8 +47,8 @@ async def lifespan(_):
     yield
     if db_pool and not db_pool.closed:
         db_pool.close()
-        print("Database connection pool closed")
-    print("The service has been shut down")
+        log.info("Database connection pool closed")
+    log.info("The service has been shut down")
 
 
 app = FastAPI(lifespan=lifespan)
@@ -74,7 +76,12 @@ async def non_stream_response(user_input, config):
                 "finish": True,
                 "error": False,
             }
-        return None
+        return {
+            "id": str(uuid.uuid4()),
+            "content": "No response",
+            "finish": True,
+            "error": False,
+        }
     except Exception as e:
         log.error(f"Non-stream generation error: {e}")
         return {
@@ -101,7 +108,7 @@ def stream_response(user_input, config):
             node_name = metadata.get("langgraph_node") if metadata else None
             chunk = getattr(message, "content", "").strip()
             if chunk and node_name in [WorkFlow.GENERATE, WorkFlow.AGENT]:
-                print(f"Streaming chunk from {node_name}: {chunk}")
+                log.info(f"Streaming chunk from {node_name}: {chunk}")
                 yield f"data: {json.dumps({'id': chunk_id, 'content': chunk, 'finish': False, 'error': False})}\n\n"
         yield f"data: {json.dumps({'id': chunk_id, 'content': '', 'finish': True, 'error': False})}\n\n"
     except Exception as e:
@@ -109,15 +116,20 @@ def stream_response(user_input, config):
         yield f"data: {json.dumps({'id': chunk_id, 'content': 'System error', 'finish': True, 'error': True})}\n\n"
 
 
-class ChatRequest(BaseModel):
+class CreateChatRequest(BaseModel):
     messages: List[Message]
     stream: Optional[bool] = False
     user_id: str
     thread_id: str
 
 
+class FetchChatRequest(BaseModel):
+    user_id: str
+    thread_id: str
+
+
 @app.post("/chat")
-async def chat(_: Request, body: ChatRequest):
+async def create_chat(_: Request, body: CreateChatRequest):
     messages = body.messages
     user_id = body.user_id
     try:
@@ -125,7 +137,7 @@ async def chat(_: Request, body: ChatRequest):
             log.error("Invalid request")
             raise HTTPException(status_code=400, detail="Invalid request")
         user_input = messages[-1].content
-        print(f"The user's user_input is: {user_input}")
+        log.info(f"The user's user_input is: {user_input}")
 
         config = {"configurable": {"thread_id": body.thread_id, "user_id": user_id}}
 
@@ -143,5 +155,17 @@ async def chat(_: Request, body: ChatRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/chat")
+async def fetch_chat(_: Request, body: FetchChatRequest):
+    config = {"configurable": {"thread_id": body.thread_id, "user_id": body.user_id}}
+
+
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8012)
+    is_debug = False if os.getenv("DEBUG") == "False" else True
+    uvicorn.run(
+        "main:app",
+        host=os.getenv("HOST"),
+        port=int(os.getenv("PORT")),
+        reload=is_debug,
+        # workers=4 if not is_debug else None,
+    )

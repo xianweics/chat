@@ -21,7 +21,7 @@ def monitor_connection_pool(db_connection_pool, interval=DB_MONITOR_INTERVAL):
         stats = db_connection_pool.get_stats()
         active = stats.get("connections_in_use", 0)
         total = db_connection_pool.max_size
-        print(
+        log.info(
             f"Connection db_connection_pool status: {active}/{total} connections in use"
         )
         if active >= total * 0.8:

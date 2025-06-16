@@ -64,8 +64,9 @@ async def non_stream_response(user_input, config):
             },
             config,
         )
-        error = result["error"]
-        next_nodes = result["next_nodes"][0] if len(result["next_nodes"]) else None
+        error = result.get("error")
+        next_nodes = result.get("next_nodes", [])
+        next_nodes = next_nodes[0] if len(next_nodes) else None
         if error:
             raise
         last_message = result["messages"][-1]
@@ -166,6 +167,6 @@ if __name__ == "__main__":
         "main:app",
         host=os.getenv("HOST"),
         port=int(os.getenv("PORT")),
-        reload=is_debug,
+        # reload=is_debug,
         # workers=4 if not is_debug else None,
     )

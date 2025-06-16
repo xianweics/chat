@@ -44,10 +44,8 @@ async def lifespan(app):
     graph = create_graph(db_pool, llm_chat, tools)
 
     yield
-    if db_pool and not db_pool.closed:
+    if db_pool:
         db_pool.close()
-        log.info("Database connection pool closed")
-    log.info("The service has been shut down")
 
 
 app = FastAPI(lifespan=lifespan)
@@ -64,12 +62,12 @@ async def non_stream_response(user_input, config):
             config,
         )
         error = result.get("error")
-        next_nodes = result.get("next_nodes", [])
-        next_nodes = next_nodes[0] if len(next_nodes) else None
+        next_steps = result.get("next_steps", [])
+        next_steps = next_steps[0] if len(next_steps) else None
         if error:
             raise
         last_message = result["messages"][-1]
-        if next_nodes == END and not last_message.tool_calls:
+        if next_steps == END and not last_message.tool_calls:
             return {
                 "id": str(uuid.uuid4()),
                 "content": last_message.content,
@@ -97,9 +95,9 @@ def stream_response(user_input, config):
     try:
         stream_data = graph.stream(
             {
-                "messages": [HumanMessage(user_input)],
                 "rewrite_count": 0,
                 "error": False,
+                "messages": [HumanMessage(user_input)],
             },
             config,
             stream_mode="messages",

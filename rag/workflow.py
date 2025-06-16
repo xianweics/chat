@@ -2,6 +2,7 @@ import logging
 import sys
 import threading
 from typing import Annotated, Sequence
+from uuid import UUID
 
 from langchain_core.messages import BaseMessage, ToolMessage
 from langchain_core.prompts import (
@@ -9,7 +10,6 @@ from langchain_core.prompts import (
     ChatPromptTemplate,
     SystemMessagePromptTemplate,
 )
-from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel
@@ -32,20 +32,25 @@ from workflow_config import (
 log = logging.getLogger(__name__)
 
 
-class MessagesState(TypedDict):
+class WorkflowState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
+    user_id: UUID
+    thread_id: UUID
+    cur_step: str
+    final_answer: str
+    next_steps: list
+    error: bool
     rewrite_count: int
-    next_nodes: list
 
 
 class DocumentRelevanceScore(BaseModel):
     is_relevance: bool
 
 
-def tool_calls(state, tools):
+def tool_calls(state, tools, db_pool):
     log.info(f"{WorkFlow.CALL_TOOLS}: start")
     messages = []
-    next_nodes = []
+    next_steps = []
     for tool_call in state["messages"][-1].tool_calls:
         name = tool_call["name"]
         ts = list(filter(lambda tool: tool.get_name() == name, tools))
@@ -57,12 +62,12 @@ def tool_calls(state, tools):
                 )
             )
             nn = TOOL_TO_NEXT_NODES[name]
-            if nn not in next_nodes:
-                next_nodes.append(nn)
+            if nn not in next_steps:
+                next_steps.append(nn)
     log.info(f"{WorkFlow.CALL_TOOLS} response: {messages[0]}")
     return {
         "messages": messages,
-        "next_nodes": next_nodes,
+        "next_steps": next_steps,
     }
 
 
@@ -96,15 +101,13 @@ def create_chain(llm_chat, template_file, structured_output=None):
         raise
 
 
-def agent(state, llm_chat, tools):
+def agent(state, llm_chat, db_pool):
     log.info(f"{WorkFlow.AGENT}: start")
     try:
-        llm_chat_with_tool = llm_chat.bind_tools(tools)
-        agent_chain = create_chain(
-            llm_chat_with_tool,
+        response = create_chain(
+            llm_chat,
             PROMPT_TEMPLATE_AGENT_PATH,
-        )
-        response = agent_chain.invoke(
+        ).invoke(
             {
                 "question": state["messages"][-1],
                 "messages": filter_messages(state),
@@ -113,14 +116,14 @@ def agent(state, llm_chat, tools):
         log.info(f"{WorkFlow.AGENT} response: {response}")
         return {
             "messages": [response],
-            "next_nodes": [WorkFlow.CALL_TOOLS if response.tool_calls else END],
+            "next_steps": [WorkFlow.CALL_TOOLS if response.tool_calls else END],
         }
     except Exception as e:
         log.error(f"{WorkFlow.AGENT} error: {e}")
-        raise {"next_nodes": [END]}
+        raise {"next_steps": [END]}
 
 
-def grade_documents(state, llm_chat):
+def grade_documents(state, llm_chat, db_pool):
     log.info(f"{WorkFlow.GRADE_DOCS}: start")
     rewrite_count = state.get("rewrite_count")
     try:
@@ -140,24 +143,24 @@ def grade_documents(state, llm_chat):
         )
         return (
             {
-                "next_nodes": [WorkFlow.GENERATE],
+                "next_steps": [WorkFlow.GENERATE],
             }
             if is_relevance or rewrite_count >= 3
             else {
-                "next_nodes": [WorkFlow.REWRITE],
+                "next_steps": [WorkFlow.REWRITE],
             }
         )
     except Exception as e:
         log.error(f"{WorkFlow.GRADE_DOCS} error: {e}")
         if rewrite_count >= 3:
-            raise {"next_nodes": [END]}
+            raise {"next_steps": [END]}
         else:
             return {
-                "next_nodes": [WorkFlow.REWRITE],
+                "next_steps": [WorkFlow.REWRITE],
             }
 
 
-def rewrite(state, llm_chat):
+def rewrite(state, llm_chat, db_pool):
     log.info(f"{WorkFlow.REWRITE}: start")
     try:
         question = get_latest_question(state)
@@ -169,14 +172,14 @@ def rewrite(state, llm_chat):
         return {
             "messages": [response],
             "rewrite_count": rewrite_count,
-            "next_nodes": [WorkFlow.AGENT],
+            "next_steps": [WorkFlow.AGENT],
         }
     except Exception as e:
         log.error(f"{WorkFlow.REWRITE} error: {e}")
-        raise {"next_nodes": [END]}
+        raise {"next_steps": [END]}
 
 
-def generate(state, llm_chat):
+def generate(state, llm_chat, db_pool):
     log.info(f"{WorkFlow.GENERATE}: start")
     try:
         response = create_chain(llm_chat, PROMPT_TEMPLATE_GENERATE_PATH).invoke(
@@ -187,52 +190,48 @@ def generate(state, llm_chat):
         )
         return {
             "messages": [response],
-            "next_nodes": [END],
+            "next_steps": [END],
         }
     except Exception as e:
         log.error(f"{WorkFlow.GENERATE} error: {e}")
         return {
-            "next_nodes": [END],
+            "next_steps": [END],
         }
 
 
 def create_graph(db_pool, llm_chat, tools):
     try:
-        checkpointer = PostgresSaver(db_pool)
-        checkpointer.setup()
-    except Exception as e:
-        log.error(f"Failed to setup PostgresSaver: {e}")
-        sys.exit(-1)
-    try:
-        workflow = StateGraph(MessagesState)
+        workflow = StateGraph(WorkflowState)
+        llm = llm_chat.bind_tools(tools)
         workflow.add_node(
             WorkFlow.AGENT,
-            lambda state: agent(state, llm_chat, tools),
+            lambda state: agent(state, llm, db_pool),
         )
         workflow.add_node(
             WorkFlow.CALL_TOOLS,
-            lambda state: tool_calls(state, tools),
+            lambda state: tool_calls(state, tools, db_pool),
         )
         workflow.add_node(
             WorkFlow.REWRITE,
-            lambda state: rewrite(state, llm_chat),
+            lambda state: rewrite(state, llm, db_pool),
         )
         workflow.add_node(
             WorkFlow.GENERATE,
-            lambda state: generate(state, llm_chat),
+            lambda state: generate(state, llm, db_pool),
         )
         workflow.add_node(
-            WorkFlow.GRADE_DOCS, lambda state: grade_documents(state, llm_chat)
+            WorkFlow.GRADE_DOCS,
+            lambda state: grade_documents(state, llm, db_pool),
         )
         workflow.add_edge(START, WorkFlow.AGENT)
         workflow.add_conditional_edges(
             WorkFlow.AGENT,
-            lambda state: state.get("next_nodes"),
+            lambda state: state.get("next_steps"),
             {WorkFlow.CALL_TOOLS: WorkFlow.CALL_TOOLS, END: END},
         )
         workflow.add_conditional_edges(
             WorkFlow.CALL_TOOLS,
-            lambda state: state.get("next_nodes"),
+            lambda state: state.get("next_steps"),
             {
                 WorkFlow.GRADE_DOCS: WorkFlow.GRADE_DOCS,
                 WorkFlow.GENERATE: WorkFlow.GENERATE,
@@ -240,7 +239,7 @@ def create_graph(db_pool, llm_chat, tools):
         )
         workflow.add_conditional_edges(
             WorkFlow.GRADE_DOCS,
-            lambda state: state.get("next_nodes"),
+            lambda state: state.get("next_steps"),
             {
                 WorkFlow.REWRITE: WorkFlow.REWRITE,
                 WorkFlow.GENERATE: WorkFlow.GENERATE,
@@ -248,7 +247,7 @@ def create_graph(db_pool, llm_chat, tools):
         )
         workflow.add_conditional_edges(
             WorkFlow.REWRITE,
-            lambda state: state.get("next_nodes"),
+            lambda state: state.get("next_steps"),
             {
                 WorkFlow.AGENT: WorkFlow.AGENT,
                 END: END,
@@ -260,7 +259,7 @@ def create_graph(db_pool, llm_chat, tools):
         log.error(f"Failed to create workflow: {e}")
         sys.exit(-1)
 
-    graph = workflow.compile(checkpointer=checkpointer)
+    graph = workflow.compile()
     save_graph_visualization(graph)
 
     return graph

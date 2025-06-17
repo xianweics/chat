@@ -2,13 +2,13 @@ import logging
 import os
 import sys
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy import (
     Column,
     Text,
     DateTime,
     JSON,
-    func,
     UUID,
     ForeignKey,
     select,
@@ -33,13 +33,12 @@ class Message(Base):
         primary_key=True,
         unique=True,
         default=uuid.uuid4,
-        server_default=func.gen_random_uuid(),
     )
     user_id = Column(UUID(as_uuid=True), nullable=False, index=True)
     thread_id = Column(UUID(as_uuid=True), nullable=False, index=True)
     question = Column(Text, nullable=False)
     answer = Column(Text)
-    created_time = Column(DateTime, server_default=func.now())
+    created_time = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
 
     history = relationship("History", back_populates="message", uselist=False)
 
@@ -52,13 +51,12 @@ class History(Base):
         primary_key=True,
         unique=True,
         default=uuid.uuid4,
-        server_default=func.gen_random_uuid(),
     )
     message_id = Column(
         UUID(as_uuid=True), ForeignKey("messages.id"), nullable=False, index=True
     )
     thoughts = Column(JSON, nullable=False)
-    created_time = Column(DateTime, server_default=func.now())
+    created_time = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
 
     message = relationship("Message", back_populates="history")
 
@@ -227,6 +225,7 @@ class ConnectionPoolManager:
             raise e
         finally:
             await session.close()
+        return None
 
     async def get_history_by_id(self, id):
         session = await self.get_session()

@@ -12,7 +12,11 @@ LOG_FILE = str(Path(f"{pp}/app.log"))
 
 def load_logger():
     logger = logging.getLogger()
-    logger.setLevel(logging.WARNING)
+    logger.setLevel(logging.ERROR)
+
+    for handler in logger.handlers:
+        if isinstance(handler, ConcurrentRotatingFileHandler):
+            return logger
 
     handler = ConcurrentRotatingFileHandler(
         filename=LOG_FILE,

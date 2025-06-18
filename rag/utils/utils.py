@@ -12,8 +12,7 @@ def save_graph_visualization(graph):
         f.write(graph.get_graph().draw_mermaid_png())
 
 
-def filter_messages(state, included=(AIMessage, HumanMessage)):
-    messages = state["messages"]
+def filter_messages(messages, included=(AIMessage, HumanMessage)):
     filtered = [
         msg
         for msg in messages
@@ -29,6 +28,7 @@ def filter_messages(state, included=(AIMessage, HumanMessage)):
         and msg.content.strip()
     ]
     num = 30
+    print(filtered)
     return filtered[-num:] if len(filtered) > num else filtered
 
 

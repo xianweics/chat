@@ -8,12 +8,10 @@ from logger import load_logger
 log = load_logger()
 from langgraph.constants import END
 import json
-from langgraph.graph.state import CompiledStateGraph
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.responses import StreamingResponse
 import uvicorn
-import uuid
 from typing import Optional
 from pydantic import BaseModel
 from langchain_core.messages import HumanMessage
@@ -30,52 +28,67 @@ class Message(BaseModel):
     content: str
 
 
-graph: CompiledStateGraph
-
-
 @asynccontextmanager
 async def lifespan(app):
-    global graph
-
     llm_chat, llm_embedding = get_llm()
     tools = get_tools(llm_embedding)
-    db_pool = run_db()
+    db_pool = await run_db()
     app.state.db_pool = db_pool
-    graph = create_graph(db_pool, llm_chat, tools)
+    app.state.graph = await create_graph(db_pool, llm_chat, tools)
 
     yield
     if db_pool:
-        db_pool.close()
+        await db_pool.close()
 
 
 app = FastAPI(lifespan=lifespan)
 
 
-async def non_stream_response(user_input, config):
+async def get_db_pool(request: Request):
+    return request.app.state.db_pool
+
+
+async def get_graph(request: Request):
+    return request.app.state.graph
+
+
+def generate_configurable(thread_id, user_id):
+    return {"configurable": {"thread_id": thread_id, "user_id": user_id}}
+
+
+def generate_invoke_payload(payload):
+    content = payload.content
+    user_id = payload.user_id
+    thread_id = payload.thread_id
+    history_id = payload.history_id
+    return (
+        {
+            "messages": [HumanMessage(content)],
+            "rewrite_count": 0,
+            "error": False,
+            "history_id": history_id,
+            "user_id": user_id,
+            "thread_id": thread_id,
+        },
+        generate_configurable(thread_id, user_id),
+    )
+
+
+async def non_stream_response(payload, graph):
     try:
-        result = graph.invoke(
-            {
-                "messages": [HumanMessage(user_input)],
-                "rewrite_count": 0,
-                "error": False,
-            },
-            config,
-        )
-        error = result.get("error")
+        result = await graph.ainvoke(*generate_invoke_payload(payload))
         next_steps = result.get("next_steps", [])
         next_steps = next_steps[0] if len(next_steps) else None
-        if error:
-            raise
+        if result.get("error"):
+            raise HTTPException(status_code=500, detail="System error")
         last_message = result["messages"][-1]
         if next_steps == END and not last_message.tool_calls:
             return {
-                "id": str(uuid.uuid4()),
                 "content": last_message.content,
                 "finish": True,
                 "error": False,
             }
         return {
-            "id": str(uuid.uuid4()),
             "content": "No response",
             "finish": True,
             "error": False,
@@ -83,23 +96,16 @@ async def non_stream_response(user_input, config):
     except Exception as e:
         log.error(f"Non-stream generation error: {e}")
         return {
-            "id": str(uuid.uuid4()),
             "content": "System error",
             "finish": True,
             "error": True,
         }
 
 
-def stream_response(user_input, config):
-    chunk_id = str(uuid.uuid4())
+async def stream_response(payload, graph):
     try:
-        stream_data = graph.stream(
-            {
-                "rewrite_count": 0,
-                "error": False,
-                "messages": [HumanMessage(user_input)],
-            },
-            config,
+        stream_data = await graph.astream(
+            *generate_invoke_payload(payload),
             stream_mode="messages",
         )
         for message, metadata in stream_data:
@@ -107,11 +113,11 @@ def stream_response(user_input, config):
             chunk = getattr(message, "content", "").strip()
             if chunk and node_name in [WorkFlow.GENERATE, WorkFlow.AGENT]:
                 log.info(f"Streaming chunk from {node_name}: {chunk}")
-                yield f"data: {json.dumps({'id': chunk_id, 'content': chunk, 'finish': False, 'error': False})}\n\n"
-        yield f"data: {json.dumps({'id': chunk_id, 'content': '', 'finish': True, 'error': False})}\n\n"
+                yield f"data: {json.dumps({'content': chunk, 'finish': False, 'error': False})}\n\n"
+        yield f"data: {json.dumps({'content': '', 'finish': True, 'error': False})}\n\n"
     except Exception as e:
         log.error(f"Stream generation error: {e}")
-        yield f"data: {json.dumps({'id': chunk_id, 'content': 'System error', 'finish': True, 'error': True})}\n\n"
+        yield f"data: {json.dumps({ 'content': 'System error', 'finish': True, 'error': True})}\n\n"
 
 
 class CreateChatRequest(BaseModel):
@@ -119,6 +125,7 @@ class CreateChatRequest(BaseModel):
     stream: Optional[bool] = False
     user_id: str
     thread_id: str
+    history_id: Optional[str] = None
 
 
 class FetchChatRequest(BaseModel):
@@ -127,25 +134,23 @@ class FetchChatRequest(BaseModel):
 
 
 @app.post("/chat")
-async def create_chat(_: Request, body: CreateChatRequest):
+async def create_chat(_: Request, body: CreateChatRequest, graph=Depends(get_graph)):
     content = body.content
     user_id = body.user_id
     thread_id = body.thread_id
     try:
-        if not content or not user_id or not content:
+        if not content or not user_id or not thread_id or not content:
             log.error("Invalid request")
             raise HTTPException(status_code=400, detail="Invalid request")
         log.info(f"The user's user_input is: {content}")
 
-        config = {"configurable": {"thread_id": thread_id, "user_id": user_id}}
-
         return (
             StreamingResponse(
-                stream_response(content, config),
+                stream_response(body, graph),
                 media_type="text/event-stream",
             )
             if body.stream
-            else await non_stream_response(content, config)
+            else await non_stream_response(body, graph)
         )
 
     except Exception as e:
@@ -153,52 +158,14 @@ async def create_chat(_: Request, body: CreateChatRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-async def get_db_pool(request: Request):
-    return request.app.state.db_pool
-
-
-def extract_message_contents(data):
-    result = []
-
-    for item in data:
-        for _, write_data in item.get("metadata", dict).get("writes", {}).items():
-            breakpoint()
-            for message in write_data.get("messages", list):
-                result.append(
-                    {
-                        "type": message["kwargs"]["type"],
-                        "content": message["kwargs"]["content"],
-                    }
-                )
-    return result
-
-
 @app.get("/chat")
 async def fetch_chat(
     _: Request,
     thread_id: str,
     user_id: str,
-    db_pool: any = Depends(get_db_pool),
+    db_pool=Depends(get_db_pool),
 ):
-    try:
-        with db_pool.getconn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT thread_id, metadata FROM checkpoints WHERE thread_id = %s",
-                    (thread_id,),
-                )
-                all_data = cur.fetchall()
-                if len(all_data) == 0:
-                    return []
-                columns = [desc[0] for desc in cur.description]
-                return extract_message_contents(
-                    data
-                    for data in [dict(zip(columns, row)) for row in all_data]
-                    if data.get("metadata").get("user_id") == user_id
-                )
-    except Exception as e:
-        log.error(f"Error fetching chat: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    pass
 
 
 if __name__ == "__main__":

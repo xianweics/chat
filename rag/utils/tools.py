@@ -3,6 +3,7 @@ import re
 import sys
 import uuid
 from pathlib import Path
+from typing import Dict, Any
 
 from langchain_chroma import Chroma
 from langchain_core.tools import create_retriever_tool, StructuredTool
@@ -84,8 +85,17 @@ def generate_retriever_tool(
     )
 
 
-def multiply(a, b):
-    return a * b
+def multiply(a: float, b: float) -> Dict[str, Any]:
+    """计算两个数的乘积。
+
+    Args:
+        a: 第一个数
+        b: 第二个数
+
+    Returns:
+        包含结果的字典
+    """
+    return {"result": a * b}
 
 
 def get_tools(llm_embedding):

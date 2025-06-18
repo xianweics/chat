@@ -3,15 +3,15 @@ import re
 import sys
 import uuid
 from pathlib import Path
-from typing import Dict, Any
 
 from langchain_chroma import Chroma
-from langchain_core.tools import create_retriever_tool, StructuredTool
+from langchain_core.embeddings import Embeddings
+from langchain_core.tools import create_retriever_tool, StructuredTool, Tool
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pdfminer.high_level import extract_pages
 from pdfminer.layout import LTTextContainer
 
-from utils.config import (
+from .config import (
     TOOL_NAME_MULTIPLY,
     TOOL_NAME_HEALTH,
     TOOL_NAME_DEEPSEEK,
@@ -35,7 +35,7 @@ DEEPSEEK_PATH = str(Path(f"{pp}/docs/deepseek-v3-1-4.pdf"))
 HEALTH_PATH = str(Path(f"{pp}/docs/健康档案.pdf"))
 
 
-def extract_pdf_to_texts(pdf_path):
+def extract_pdf_to_texts(pdf_path: str) -> str:
     texts = ""
     pages = enumerate(extract_pages(pdf_path), start=1)
     for page_num, page_layout in pages:
@@ -47,7 +47,7 @@ def extract_pdf_to_texts(pdf_path):
     return texts
 
 
-def text_to_chucks(texts):
+def text_to_chucks(texts: str) -> list[str]:
     # handle special characters：
     # 14.1
     # 3.3.2
@@ -66,8 +66,12 @@ def text_to_chucks(texts):
 
 
 def generate_retriever_tool(
-    llm_embedding, file_path, collection_name, tool_name, tool_description
-):
+    llm_embedding: Embeddings,
+    file_path: str,
+    collection_name: str,
+    tool_name: str,
+    tool_description: str,
+) -> Tool:
     chunks = text_to_chucks(extract_pdf_to_texts(file_path))
     vectorstore = Chroma(
         persist_directory=CHROMADB_PATH,
@@ -85,20 +89,19 @@ def generate_retriever_tool(
     )
 
 
-def multiply(a: float, b: float) -> Dict[str, Any]:
-    """计算两个数的乘积。
-
+def multiply(a: float, b: float) -> float:
+    """
     Args:
         a: 第一个数
         b: 第二个数
 
     Returns:
-        包含结果的字典
+        返回结果
     """
-    return {"result": a * b}
+    return a * b
 
 
-def get_tools(llm_embedding):
+def get_tools(llm_embedding: Embeddings) -> list[Tool]:
     try:
         return [
             generate_retriever_tool(

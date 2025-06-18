@@ -1,25 +1,31 @@
 import logging
 from pathlib import Path
 
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, BaseMessage
+from langgraph.graph.state import CompiledStateGraph
+
+from rag.workflow_config import WorkflowState
 
 logger = logging.getLogger(__name__)
 
 
-def save_graph_visualization(graph):
+def save_graph_visualization(graph: CompiledStateGraph) -> None:
     pp = Path(__file__).parent.parent
     with open(Path(f"{pp}/graph.png"), "wb") as f:
         f.write(graph.get_graph().draw_mermaid_png())
 
 
-def filter_messages(messages, included=(AIMessage, HumanMessage)):
+def filter_messages(
+    messages,
+    included: tuple[BaseMessage] = (AIMessage, HumanMessage),
+) -> list[BaseMessage]:
     filtered = [
         msg
         for msg in messages
         if len(
             list(
                 filter(
-                    lambda type: isinstance(msg, type),
+                    lambda t: isinstance(msg, t),
                     included,
                 )
             )
@@ -32,10 +38,10 @@ def filter_messages(messages, included=(AIMessage, HumanMessage)):
     return filtered[-num:] if len(filtered) > num else filtered
 
 
-def get_latest_question(state, type=HumanMessage):
+def get_latest_question(state: WorkflowState, t=HumanMessage) -> BaseMessage | None:
     human_messages = list(
         filter(
-            lambda message: isinstance(message, type),
+            lambda message: isinstance(message, t),
             state["messages"],
         )
     )

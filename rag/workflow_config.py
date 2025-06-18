@@ -1,4 +1,9 @@
 from pathlib import Path
+from typing import TypedDict, Annotated, Sequence
+from uuid import UUID
+
+from langchain_core.messages import BaseMessage
+from langgraph.graph import add_messages
 
 from utils.config import (
     TOOL_NAME_DEEPSEEK,
@@ -29,3 +34,12 @@ PROMPT_TEMPLATE_AGENT_PATH = str(Path(f"{pp}/prompts/prompt_template_agent.txt")
 PROMPT_TEMPLATE_GRADE_PATH = str(Path(f"{pp}/prompts/prompt_template_grade.txt"))
 PROMPT_TEMPLATE_REWRITE_PATH = str(Path(f"{pp}/prompts/prompt_template_rewrite.txt"))
 PROMPT_TEMPLATE_GENERATE_PATH = str(Path(f"{pp}/prompts/prompt_template_generate.txt"))
+
+
+class WorkflowState(TypedDict):
+    messages: Annotated[Sequence[BaseMessage], add_messages]
+    user_id: UUID
+    id: UUID
+    next_steps: list
+    error: bool
+    rewrite_count: int

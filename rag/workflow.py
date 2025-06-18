@@ -1,20 +1,23 @@
+import asyncio
 import logging
 import sys
 import threading
-import asyncio
-from typing import Annotated, Sequence
-from uuid import UUID
+from typing import Any
 
-from langchain_core.messages import BaseMessage, ToolMessage
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import ToolMessage, AIMessage, HumanMessage
 from langchain_core.prompts import (
     PromptTemplate,
     ChatPromptTemplate,
     SystemMessagePromptTemplate,
 )
+from langchain_core.runnables import Runnable
+from langchain_core.tools import Tool
 from langgraph.graph import StateGraph, START, END
-from langgraph.graph.message import add_messages
+from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
-from typing_extensions import TypedDict
+
+from utils.db import ConnectionPoolManager
 from utils.utils import (
     save_graph_visualization,
     filter_messages,
@@ -27,29 +30,18 @@ from workflow_config import (
     PROMPT_TEMPLATE_GRADE_PATH,
     PROMPT_TEMPLATE_REWRITE_PATH,
     PROMPT_TEMPLATE_GENERATE_PATH,
+    WorkflowState,
 )
 
 log = logging.getLogger(__name__)
-
-
-class WorkflowState(TypedDict):
-    messages: Annotated[Sequence[BaseMessage], add_messages]
-    user_id: UUID
-    thread_id: UUID
-    history_id: UUID
-    cur_step: str
-    final_answer: str
-    next_steps: list
-    error: bool
-    rewrite_count: int
 
 
 class DocumentRelevanceScore(BaseModel):
     is_relevance: bool
 
 
-async def tool_calls(state, tools):
-    log.info(f"{WorkFlow.CALL_TOOLS}: start")
+async def tool_calls(state: WorkflowState, tools: list[Tool]) -> dict[str, Any]:
+    print(f"{WorkFlow.CALL_TOOLS}: start")
     messages = []
     next_steps = []
     for tool_call in state["messages"][-1].tool_calls:
@@ -65,14 +57,16 @@ async def tool_calls(state, tools):
             nn = TOOL_TO_NEXT_NODES[name]
             if nn not in next_steps:
                 next_steps.append(nn)
-    log.info(f"{WorkFlow.CALL_TOOLS} response: {messages[0]}")
+    print(f"{WorkFlow.CALL_TOOLS} response: {messages[0]}")
     return {
         "messages": messages,
         "next_steps": next_steps,
     }
 
 
-def create_chain(llm_chat, template_file, structured_output=None):
+def create_chain(
+    llm_chat: BaseChatModel, template_file: str, structured_output=None
+) -> Runnable:
     if not hasattr(create_chain, "prompt_cache"):
         create_chain.prompt_cache = {}
         create_chain.lock = threading.Lock()
@@ -81,10 +75,10 @@ def create_chain(llm_chat, template_file, structured_output=None):
         prompt_template = None
         if template_file in create_chain.prompt_cache:
             prompt_template = create_chain.prompt_cache[template_file]
-            log.info(f"Using cached prompt template: {template_file}")
+            print(f"Using cached prompt template: {template_file}")
         else:
             with create_chain.lock:
-                log.info(f"Loading and caching prompt template: {template_file}")
+                print(f"Loading and caching prompt template: {template_file}")
                 prompt_template = create_chain.prompt_cache[template_file] = (
                     PromptTemplate.from_file(template_file, encoding="utf-8")
                 )
@@ -102,9 +96,20 @@ def create_chain(llm_chat, template_file, structured_output=None):
         raise
 
 
-async def agent(state, llm_chat, db_pool):
-    log.info(f"{WorkFlow.AGENT}: start")
-    history = await db_pool.get_history(state.get("history_id")) or state["messages"]
+async def agent(
+    state: WorkflowState, llm_chat: Any, db_pool: ConnectionPoolManager
+) -> dict[str, Any]:
+    print(f"{WorkFlow.AGENT}: start")
+    db_history = await db_pool.get_chats(
+        user_id=state.get("user_id"), id=state.get("id"), return_items=("user", "ai")
+    )
+    if db_history:
+        history = []
+        for item in db_history:
+            history.append(HumanMessage(item["user"])) if item["user"] else None
+            history.append(AIMessage(item["ai"])) if item["ai"] else None
+    else:
+        history = state["messages"]
     try:
         chain = create_chain(
             llm_chat,
@@ -113,11 +118,11 @@ async def agent(state, llm_chat, db_pool):
 
         response = chain.invoke(
             {
-                "question": get_latest_question(state).content,
-                "messages": [msg.content for msg in filter_messages(history)],
+                "question": get_latest_question(state),
+                "messages": filter_messages(history),
             }
         )
-        log.info(f"{WorkFlow.AGENT} response: {response}")
+        print(f"{WorkFlow.AGENT} response: {response}")
         return {
             "messages": [response],
             "next_steps": [WorkFlow.CALL_TOOLS if response.tool_calls else END],
@@ -127,8 +132,10 @@ async def agent(state, llm_chat, db_pool):
         return {"next_steps": [END], "error": True}
 
 
-async def grade_documents(state, llm_chat):
-    log.info(f"{WorkFlow.GRADE_DOCS}: start")
+async def grade_documents(
+    state: WorkflowState, llm_chat: BaseChatModel
+) -> dict[str, Any]:
+    print(f"{WorkFlow.GRADE_DOCS}: start")
     rewrite_count = state.get("rewrite_count")
     try:
         chain = create_chain(
@@ -163,15 +170,15 @@ async def grade_documents(state, llm_chat):
             }
 
 
-async def rewrite(state, llm_chat):
-    log.info(f"{WorkFlow.REWRITE}: start")
+async def rewrite(state: WorkflowState, llm_chat: BaseChatModel) -> dict[str, Any]:
+    print(f"{WorkFlow.REWRITE}: start")
     try:
         question = get_latest_question(state)
         chain = create_chain(llm_chat, PROMPT_TEMPLATE_REWRITE_PATH)
         response = chain.invoke({"question": question})
-        log.info(f"{WorkFlow.REWRITE} question: {response}")
+        print(f"{WorkFlow.REWRITE} question: {response}")
         rewrite_count = state.get("rewrite_count") + 1
-        log.info(f"{WorkFlow.REWRITE} count: {rewrite_count}")
+        print(f"{WorkFlow.REWRITE} count: {rewrite_count}")
         return {
             "messages": [response],
             "rewrite_count": rewrite_count,
@@ -182,8 +189,8 @@ async def rewrite(state, llm_chat):
         return {"messages": [], "next_steps": [END], "error": True}
 
 
-async def generate(state, llm_chat):
-    log.info(f"{WorkFlow.GENERATE}: start")
+async def generate(state: WorkflowState, llm_chat: BaseChatModel) -> dict[str, Any]:
+    print(f"{WorkFlow.GENERATE}: start")
     try:
         chain = create_chain(llm_chat, PROMPT_TEMPLATE_GENERATE_PATH)
         response = await chain.ainvoke(
@@ -201,10 +208,13 @@ async def generate(state, llm_chat):
         return {"messages": [], "next_steps": [END], "error": True}
 
 
-async def create_graph(db_pool, llm_chat, tools):
+async def create_graph(
+    db_pool: ConnectionPoolManager, llm_chat: BaseChatModel, tools: list[Tool]
+) -> CompiledStateGraph:
     try:
         workflow = StateGraph(WorkflowState)
         loop = asyncio.get_event_loop()
+        llm_chat.bind_tools(tools)
         workflow.add_node(
             WorkFlow.AGENT,
             lambda state: asyncio.run_coroutine_threadsafe(

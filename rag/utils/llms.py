@@ -2,13 +2,15 @@ import logging
 import os
 import sys
 
+from langchain_core.embeddings import Embeddings
+from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from pydantic import SecretStr
 
 log = logging.getLogger(__name__)
 
 
-def get_llm():
+def get_llm() -> (BaseChatModel, Embeddings):
     try:
         llm_chat = ChatOpenAI(
             base_url=os.getenv("LLM_BASE_URL"),

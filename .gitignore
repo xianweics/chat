@@ -2,5 +2,7 @@ chat.iml
 node_modules
 .idea
 *.iml
-/llm/chromaDB/
-/.vscode/
+chromaDB
+.vscode
+.__app.lock
+*.log

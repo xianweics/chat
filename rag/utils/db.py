@@ -2,20 +2,17 @@ import asyncio
 import logging
 import os
 import sys
+import traceback
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Coroutine
+from typing import Any
 
-from sqlalchemy import Column, Text, DateTime, JSON, UUID, select
+from sqlalchemy import Column, Text, DateTime, UUID, select, text, JSON
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
 log = logging.getLogger(__name__)
-
-from dotenv import load_dotenv
-
-load_dotenv()
 
 
 class Message(Base):
@@ -28,9 +25,8 @@ class Message(Base):
         default=uuid.uuid4,
     )
     user_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    thread_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    question = Column(Text, nullable=False)
-    answer = Column(Text)
+    user = Column(Text, nullable=False)
+    ai = Column(Text)
     thinking = Column(JSON, nullable=False)
     created_time = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
 
@@ -38,9 +34,10 @@ class Message(Base):
 class ConnectionPoolManager:
     POOL_STATS_INTERVAL = 60
 
-    def __init__(self, conn_string):
+    def __init__(self, url, name):
         self.Session = None
-        self.conn_string = conn_string
+        self.url = url
+        self.name = name
         self.engine = None
         self.monitor_task = None
 
@@ -52,9 +49,9 @@ class ConnectionPoolManager:
             "pool_pre_ping": True,
         }
 
-    async def initialize(self):
-        print("Initializing database connection pool...")
-        self.engine = create_async_engine(self.conn_string, **self.pool_config)
+    async def initialize(self) -> "ConnectionPoolManager":
+        await self.create_database_if_not_exists()
+        self.engine = create_async_engine(self.url + self.name, **self.pool_config)
 
         self.Session = async_sessionmaker(
             self.engine, expire_on_commit=False, class_=AsyncSession
@@ -62,18 +59,32 @@ class ConnectionPoolManager:
 
         self.monitor_task = asyncio.create_task(self.monitor_pool_stats())
         await self.create_tables()
-        print("database connection pool...")
         return self
 
-    async def create_tables(self):
+    async def create_database_if_not_exists(self) -> None:
+        temp_engine = create_async_engine(
+            self.url,
+            isolation_level="AUTOCOMMIT",
+        )
+
+        async with temp_engine.connect() as conn:
+            result = await conn.execute(
+                text("SELECT 1 FROM pg_database WHERE datname = :db_name"),
+                {"db_name": self.name},
+            )
+
+            if not result.scalar():
+                await conn.execute(text(f"CREATE DATABASE {self.name}"))
+
+    async def create_tables(self) -> None:
         async with self.engine.begin() as conn:
-            # await conn.run_sync(Base.metadata.drop_all)
+            await conn.run_sync(Base.metadata.drop_all)
             await conn.run_sync(Base.metadata.create_all)
 
-    async def get_session(self):
+    async def get_session(self) -> AsyncSession:
         return self.Session()
 
-    async def monitor_pool_stats(self):
+    async def monitor_pool_stats(self) -> None:
         while True:
             try:
                 if self.engine and self.engine.pool:
@@ -94,10 +105,10 @@ class ConnectionPoolManager:
                     }
                     print("Pool stats:", stats)
             except Exception as e:
-                print(f"Error monitoring pool: {e}")
+                raise e
             await asyncio.sleep(self.POOL_STATS_INTERVAL)
 
-    async def close(self):
+    async def close(self) -> None:
         if self.monitor_task:
             try:
                 self.monitor_task.cancel()
@@ -109,140 +120,84 @@ class ConnectionPoolManager:
         if self.engine:
             await self.engine.dispose()
 
-        print("Connection pool manager shutdown complete")
-
-    async def save_conversation(self, user_id, thread_id, question, answer, thinking):
+    async def save_chat(
+        self, user_id: UUID, user: str, ai: str, thinking: list
+    ) -> dict[str, Any]:
         session = await self.get_session()
         try:
+            serializable_thinking = []
+            for msg in thinking:
+                if hasattr(msg, "type") and hasattr(msg, "content"):
+                    msg_dict = {"role": msg.type, "content": msg.content}
+                    if hasattr(msg, "tool_calls"):
+                        msg_dict["tool_calls"] = msg.tool_calls
+                    serializable_thinking.append(msg_dict)
+
             message = Message(
                 user_id=user_id,
-                thread_id=thread_id,
-                id=str(uuid.uuid4()),
-                question=question,
-                answer=answer,
-                thinking=thinking,
+                id=uuid.uuid4(),
+                user=user,
+                ai=ai,
+                thinking=serializable_thinking or thinking,
             )
-
             async with session.begin():
                 session.add(message)
                 await session.flush()
 
-                result_data = {
-                    "id": message.id,
-                    "user_id": message.user_id,
-                    "thread_id": message.thread_id,
-                    "question": message.question,
-                    "answer": message.answer,
-                    "thinking": message.thinking,
-                    "created_time": message.created_time,
-                }
-
-            print(f"Saved conversation {message.id}")
-            return result_data
+            return {
+                "id": message.id,
+                "user_id": message.user_id,
+                "user": message.user,
+                "ai": message.ai,
+                "thinking": message.thinking,
+                "created_time": message.created_time,
+            }
 
         except Exception as e:
-            print(f"Failed to save conversation: {str(e)}")
+            print(traceback.format_exc())
             raise e
 
         finally:
             await session.close()
 
-    async def get_chats(self, user_id, thread_id, included_history=False):
+    async def get_chats(
+        self, user_id: UUID, id: UUID, return_items=("*",)
+    ) -> list[dict[str, Any | None]] | None:
         session = await self.get_session()
 
         try:
-            stmt = select(Message).where(
-                Message.thread_id == thread_id, Message.user_id == user_id
-            )
-
+            stmt = select(Message).where(Message.id == id, Message.user_id == user_id)
             result = await session.execute(stmt)
             messages = result.unique().scalars().all()
-
             return [
                 {
-                    "id": m.id,
-                    "user_id": m.user_id,
-                    "thread_id": m.thread_id,
-                    "question": m.question,
-                    "answer": m.answer,
-                    "thinking": m.thinking if included_history else None,
-                    "created_time": m.created_time,
+                    "id": m.id if "id" or "*" in return_items else None,
+                    "user_id": m.user_id if "user_id" or "*" in return_items else None,
+                    "user": (m.user if "user" or "*" in return_items else None),
+                    "ai": m.ai if "ai" or "*" in return_items else None,
+                    "thinking": (
+                        m.thinking if "thinking" or "*" in return_items else None
+                    ),
+                    "created_time": (
+                        m.created_time
+                        if "created_time" or "*" in return_items
+                        else None
+                    ),
                 }
                 for m in messages
             ]
         except Exception as e:
-            print(f"Error in get_chats: {str(e)}")
-            raise e
-        finally:
-            await session.close()
-        return None
-
-    async def get_history(self, id) -> list[dict[str, Any]]:
-        session = await self.get_session()
-
-        try:
-            stmt = select(Message).where(Message.id == id)
-            result = await session.execute(stmt)
-
-            messages = result.scalars().all()
-            return [
-                {
-                    "id": m.id,
-                    "user_id": m.user_id,
-                    "thread_id": m.thread_id,
-                    "question": m.question,
-                    "answer": m.answer,
-                    "thinking": m.thinking,
-                    "created_time": m.created_time,
-                }
-                for m in messages
-            ]
-        except Exception as e:
-            print(f"Error in get_history: {str(e)}")
             raise e
         finally:
             await session.close()
         return None
 
 
-async def run_db():
+async def run_db() -> ConnectionPoolManager:
     try:
-        cnn_pool = ConnectionPoolManager(os.getenv("DB_URI"))
+        cnn_pool = ConnectionPoolManager(os.getenv("DB_BASE_URI"), os.getenv("DB_NAME"))
         await cnn_pool.initialize()
-        # user_id = uuid.uuid4()
-        # thread_id = uuid.uuid4()
-        # print("Test user_id:", user_id)
-        # print("Test thread_id:", thread_id)
-        #
-        # result = await cnn_pool.save_conversation(
-        #     user_id=user_id,
-        #     thread_id=thread_id,
-        #     question="haha",
-        #     answer="lala",
-        #     thinking=[{"data": "test"}],
-        # )
-        # print("Save result:", result)
-        #
-        # messages = await cnn_pool.get_chats(user_id, thread_id)
-        # print("Messages without history:", messages)
-        # messages = await cnn_pool.get_chats(
-        #     "f9cc6947-d895-4ad0-b27f-1412259cfb6a", thread_id
-        # )
-        # print("Messages without history:", messages)
-        #
-        # messages_with_history = await cnn_pool.get_chats(user_id, thread_id, True)
-        # print("Messages with history:", messages_with_history)
-        # messages_with_history = await cnn_pool.get_chats(
-        #     "f9cc6947-d895-4ad0-b27f-1412259cfb6a", thread_id, True
-        # )
-        # print("Messages with history:", messages_with_history)
-        history = await cnn_pool.get_history("6820064c-58f7-41cb-ad68-81ad74ff4d88")
-        print("history:", history)
-
         return cnn_pool
     except Exception as e:
         log.error(f"Failed to initialize database: {e}")
         sys.exit(-1)
-
-
-asyncio.run(run_db())

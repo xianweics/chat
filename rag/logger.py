@@ -1,4 +1,5 @@
 import logging
+from logging import Logger
 from pathlib import Path
 
 from concurrent_log_handler import ConcurrentRotatingFileHandler
@@ -10,7 +11,7 @@ pp = Path(__file__).parent
 LOG_FILE = str(Path(f"{pp}/app.log"))
 
 
-def load_logger():
+def load_logger() -> Logger:
     logger = logging.getLogger()
     logger.setLevel(logging.ERROR)
 

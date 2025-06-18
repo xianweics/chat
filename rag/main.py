@@ -30,7 +30,7 @@ class CreateChatRequest(BaseModel):
     content: str
     stream: Optional[bool] = False
     user_id: UUID
-    thread_id: UUID
+    id: UUID
 
 
 @asynccontextmanager
@@ -56,23 +56,23 @@ async def get_graph(request: Request) -> CompiledStateGraph:
     return request.app.state.graph
 
 
-def generate_configurable(thread_id, user_id) -> dict[str, Any]:
-    return {"configurable": {"thread_id": thread_id, "user_id": user_id}}
+def generate_configurable(id: UUID, user_id: UUID) -> dict[str, Any]:
+    return {"configurable": {"thread_id": id, "user_id": user_id}}
 
 
-def generate_invoke_payload(payload) -> tuple:
+def generate_invoke_payload(payload: CreateChatRequest) -> tuple:
     content = payload.content
     user_id = payload.user_id
-    thread_id = payload.thread_id
+    id = payload.id
     return (
         {
             "messages": [HumanMessage(content)],
             "rewrite_count": 0,
             "error": False,
             "user_id": user_id,
-            "thread_id": thread_id,
+            "id": id,
         },
-        generate_configurable(thread_id, user_id),
+        generate_configurable(id, user_id),
     )
 
 
@@ -156,9 +156,9 @@ async def create_chat(
 ):
     content = body.content
     user_id = body.user_id
-    thread_id = body.thread_id
+    id = body.id
     try:
-        if not content or not user_id or not thread_id or not content:
+        if not content or not user_id or not id or not content:
             log.error("Invalid request")
             raise HTTPException(status_code=400, detail="Invalid request")
         log.info(f"The user's user_input is: {content}")
@@ -180,7 +180,7 @@ async def create_chat(
 @app.get("/chat")
 async def fetch_chat(
     _: Request,
-    thread_id: str,
+    id: str,
     user_id: str,
     db_pool=Depends(get_db_pool),
 ):

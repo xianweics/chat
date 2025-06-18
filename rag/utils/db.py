@@ -78,7 +78,8 @@ class ConnectionPoolManager:
 
     async def create_tables(self) -> None:
         async with self.engine.begin() as conn:
-            await conn.run_sync(Base.metadata.drop_all)
+            # Only run one time
+            # await conn.run_sync(Base.metadata.drop_all)
             await conn.run_sync(Base.metadata.create_all)
 
     async def get_session(self) -> AsyncSession:

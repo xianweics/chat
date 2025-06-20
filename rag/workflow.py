@@ -1,11 +1,10 @@
-import asyncio
 import logging
 import sys
-import threading
-from typing import Any
+from functools import lru_cache
+from typing import Any, TypedDict
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import ToolMessage, AIMessage, HumanMessage
+from langchain_core.messages import ToolMessage
 from langchain_core.prompts import (
     PromptTemplate,
     ChatPromptTemplate,
@@ -17,7 +16,6 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
 
-from utils.db import ConnectionPoolManager
 from utils.utils import (
     save_graph_visualization,
     filter_messages,
@@ -40,7 +38,15 @@ class DocumentRelevanceScore(BaseModel):
     is_relevance: bool
 
 
-async def tool_calls(state: WorkflowState, tools: list[Tool]) -> dict[str, Any]:
+class ToolCallsResponse(TypedDict):
+    messages: list[ToolMessage]
+    next_steps: list[str]
+
+
+REWRITE_TIMES = 2
+
+
+def tool_calls(state: WorkflowState, tools: list[Tool]) -> ToolCallsResponse:
     print(f"{WorkFlow.CALL_TOOLS}: start")
     messages = []
     next_steps = []
@@ -50,39 +56,30 @@ async def tool_calls(state: WorkflowState, tools: list[Tool]) -> dict[str, Any]:
         if len(ts) > 0:
             messages.append(
                 ToolMessage(
-                    str(await ts[0].ainvoke(tool_call["args"])),
+                    str(ts[0].invoke(tool_call["args"])),
                     tool_call_id=tool_call["id"],
                 )
             )
             nn = TOOL_TO_NEXT_NODES[name]
             if nn not in next_steps:
                 next_steps.append(nn)
-    print(f"{WorkFlow.CALL_TOOLS} response: {messages[0]}")
+    print(f"{WorkFlow.CALL_TOOLS} response: {str(messages[0])}")
     return {
         "messages": messages,
         "next_steps": next_steps,
     }
 
 
+@lru_cache(maxsize=128)
+def load_prompt_template(template_file: str) -> PromptTemplate:
+    return PromptTemplate.from_file(template_file, encoding="utf-8")
+
+
 def create_chain(
-    llm_chat: BaseChatModel, template_file: str, structured_output=None
+    llm_chat: BaseChatModel, template_file: str, structured_output: type | None = None
 ) -> Runnable:
-    if not hasattr(create_chain, "prompt_cache"):
-        create_chain.prompt_cache = {}
-        create_chain.lock = threading.Lock()
-
     try:
-        prompt_template = None
-        if template_file in create_chain.prompt_cache:
-            prompt_template = create_chain.prompt_cache[template_file]
-            print(f"Using cached prompt template: {template_file}")
-        else:
-            with create_chain.lock:
-                print(f"Loading and caching prompt template: {template_file}")
-                prompt_template = create_chain.prompt_cache[template_file] = (
-                    PromptTemplate.from_file(template_file, encoding="utf-8")
-                )
-
+        prompt_template = load_prompt_template(template_file)
         prompt = ChatPromptTemplate.from_messages(
             [SystemMessagePromptTemplate.from_template(prompt_template.template)]
         )
@@ -91,25 +88,15 @@ def create_chain(
             if structured_output
             else llm_chat
         )
-    except Exception:
-        log.error(f"Load error: {template_file}")
-        raise
+    except Exception as e:
+        raise Exception(f"Load error: {template_file}: {str(e)}")
 
 
-async def agent(
-    state: WorkflowState, llm_chat: Any, db_pool: ConnectionPoolManager
+def agent(
+    state: WorkflowState,
+    llm_chat: Any,
 ) -> dict[str, Any]:
     print(f"{WorkFlow.AGENT}: start")
-    db_history = await db_pool.get_chats(
-        user_id=state.get("user_id"), id=state.get("id"), return_items=("user", "ai")
-    )
-    if db_history:
-        history = []
-        for item in db_history:
-            history.append(HumanMessage(item["user"])) if item["user"] else None
-            history.append(AIMessage(item["ai"])) if item["ai"] else None
-    else:
-        history = state["messages"]
     try:
         chain = create_chain(
             llm_chat,
@@ -119,22 +106,19 @@ async def agent(
         response = chain.invoke(
             {
                 "question": get_latest_question(state),
-                "messages": filter_messages(history),
+                "messages": filter_messages(state["messages"]),
             }
         )
-        print(f"{WorkFlow.AGENT} response: {response}")
+        print(f"{WorkFlow.AGENT} response: {str(response)}")
         return {
             "messages": [response],
             "next_steps": [WorkFlow.CALL_TOOLS if response.tool_calls else END],
         }
     except Exception as e:
-        log.error(f"{WorkFlow.AGENT} error: {e}")
-        return {"next_steps": [END], "error": True}
+        raise Exception(f"{WorkFlow.AGENT} error: {str(e)}")
 
 
-async def grade_documents(
-    state: WorkflowState, llm_chat: BaseChatModel
-) -> dict[str, Any]:
+def grade_documents(state: WorkflowState, llm_chat: BaseChatModel) -> dict[str, Any]:
     print(f"{WorkFlow.GRADE_DOCS}: start")
     rewrite_count = state.get("rewrite_count")
     try:
@@ -144,33 +128,34 @@ async def grade_documents(
             DocumentRelevanceScore,
         )
         is_relevance = (
-            await chain.ainvoke(
+            chain.invoke(
                 {
                     "question": get_latest_question(state),
                     "context": state["messages"][-1].content,
                 }
             )
         ).is_relevance
+        print(f"{WorkFlow.GRADE_DOCS} response: {is_relevance}")
+
         return (
             {
                 "next_steps": [WorkFlow.GENERATE],
             }
-            if is_relevance or rewrite_count >= 3
+            if is_relevance or rewrite_count >= REWRITE_TIMES
             else {
                 "next_steps": [WorkFlow.REWRITE],
             }
         )
     except Exception as e:
-        log.error(f"{WorkFlow.GRADE_DOCS} error: {e}")
-        if rewrite_count >= 3:
-            return {"next_steps": [END], "error": True}
+        if rewrite_count >= REWRITE_TIMES:
+            raise Exception(f"{WorkFlow.GRADE_DOCS} error: {str(e)}")
         else:
             return {
                 "next_steps": [WorkFlow.REWRITE],
             }
 
 
-async def rewrite(state: WorkflowState, llm_chat: BaseChatModel) -> dict[str, Any]:
+def rewrite(state: WorkflowState, llm_chat: BaseChatModel) -> dict[str, Any]:
     print(f"{WorkFlow.REWRITE}: start")
     try:
         question = get_latest_question(state)
@@ -185,65 +170,51 @@ async def rewrite(state: WorkflowState, llm_chat: BaseChatModel) -> dict[str, An
             "next_steps": [WorkFlow.AGENT],
         }
     except Exception as e:
-        log.error(f"{WorkFlow.REWRITE} error: {e}")
-        return {"messages": [], "next_steps": [END], "error": True}
+        raise Exception(f"{WorkFlow.REWRITE} error: {str(e)}")
 
 
-async def generate(state: WorkflowState, llm_chat: BaseChatModel) -> dict[str, Any]:
+def generate(state: WorkflowState, llm_chat: BaseChatModel) -> dict[str, Any]:
     print(f"{WorkFlow.GENERATE}: start")
     try:
         chain = create_chain(llm_chat, PROMPT_TEMPLATE_GENERATE_PATH)
-        response = await chain.ainvoke(
+        response = chain.invoke(
             {
                 "context": state["messages"][-1].content,
                 "question": get_latest_question(state),
             }
         )
+        print(f"{WorkFlow.GENERATE} response: {str(response)}")
         return {
             "messages": [response],
             "next_steps": [END],
         }
     except Exception as e:
-        log.error(f"{WorkFlow.GENERATE} error: {e}")
-        return {"messages": [], "next_steps": [END], "error": True}
+        raise Exception(f"{WorkFlow.GENERATE} error: {str(e)}")
 
 
-async def create_graph(
-    db_pool: ConnectionPoolManager, llm_chat: BaseChatModel, tools: list[Tool]
-) -> CompiledStateGraph:
+def create_graph(llm_chat: BaseChatModel, tools: list[Tool]) -> CompiledStateGraph:
     try:
         workflow = StateGraph(WorkflowState)
-        loop = asyncio.get_event_loop()
         llm_chat.bind_tools(tools)
         workflow.add_node(
             WorkFlow.AGENT,
-            lambda state: asyncio.run_coroutine_threadsafe(
-                agent(state, llm_chat.bind_tools(tools), db_pool), loop
-            ).result(),
+            lambda state: agent(state, llm_chat.bind_tools(tools)),
         )
         workflow.add_node(
             WorkFlow.CALL_TOOLS,
-            lambda state: asyncio.run_coroutine_threadsafe(
-                tool_calls(state, tools), loop
-            ).result(),
+            lambda state: tool_calls(state, tools),
         )
         workflow.add_node(
             WorkFlow.REWRITE,
-            lambda state: asyncio.run_coroutine_threadsafe(
-                rewrite(state, llm_chat), loop
-            ).result(),
+            lambda state: rewrite(state, llm_chat),
         )
         workflow.add_node(
             WorkFlow.GENERATE,
-            lambda state: asyncio.run_coroutine_threadsafe(
-                generate(state, llm_chat), loop
-            ).result(),
+            lambda state: generate(state, llm_chat),
         )
         workflow.add_node(
             WorkFlow.GRADE_DOCS,
-            lambda state: asyncio.run_coroutine_threadsafe(
-                grade_documents(state, llm_chat), loop
-            ).result(),
+            lambda state: grade_documents(state, llm_chat),
         )
         workflow.add_edge(START, WorkFlow.AGENT)
         workflow.add_conditional_edges(

@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import TypedDict, Annotated, Sequence
+from typing import TypedDict, Annotated
 from uuid import UUID
 
 from langchain_core.messages import BaseMessage
@@ -37,8 +37,7 @@ PROMPT_TEMPLATE_GENERATE_PATH = str(Path(f"{pp}/prompts/prompt_template_generate
 
 
 class WorkflowState(TypedDict):
-    messages: Annotated[Sequence[BaseMessage], add_messages]
-    user_id: UUID
+    messages: Annotated[list[BaseMessage], add_messages]
     id: UUID
     next_steps: list
     error: bool

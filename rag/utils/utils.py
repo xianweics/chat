@@ -1,4 +1,5 @@
 import logging
+import os
 from pathlib import Path
 
 from langchain_core.messages import AIMessage, HumanMessage, BaseMessage
@@ -8,6 +9,8 @@ from rag.workflow_config import WorkflowState
 
 logger = logging.getLogger(__name__)
 
+MAX_MESSAGES = int(os.getenv("MAX_MESSAGES", "30"))
+
 
 def save_graph_visualization(graph: CompiledStateGraph) -> None:
     pp = Path(__file__).parent.parent
@@ -16,7 +19,7 @@ def save_graph_visualization(graph: CompiledStateGraph) -> None:
 
 
 def filter_messages(
-    messages,
+    messages: list[BaseMessage],
     included: tuple[BaseMessage] = (AIMessage, HumanMessage),
 ) -> list[BaseMessage]:
     filtered = [
@@ -33,9 +36,7 @@ def filter_messages(
         > 0
         and msg.content.strip()
     ]
-    num = 30
-    print(filtered)
-    return filtered[-num:] if len(filtered) > num else filtered
+    return filtered[-MAX_MESSAGES:] if len(filtered) > MAX_MESSAGES else filtered
 
 
 def get_latest_question(state: WorkflowState, t=HumanMessage) -> BaseMessage | None:

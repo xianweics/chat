@@ -2,21 +2,71 @@ import asyncio
 import logging
 import os
 import sys
-import traceback
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Optional, Sequence
 
-from sqlalchemy import Column, Text, DateTime, UUID, select, text, JSON
+import tenacity
+from sqlalchemy import (
+    Column,
+    Text,
+    DateTime,
+    UUID,
+    select,
+    text,
+    String,
+    ForeignKey,
+    Enum,
+)
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import declarative_base, relationship
+
+from rag.utils.config import AIMessageRole
 
 Base = declarative_base()
 log = logging.getLogger(__name__)
 
 
-class Message(Base):
-    __tablename__ = "messages"
+class User(Base):
+    __tablename__ = "users"
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        unique=True,
+        default=uuid.uuid4,
+    )
+    username = Column(String(100), unique=True, nullable=False)
+    password = Column(String(300), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+
+    sessions = relationship(
+        "AISession", back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class AISession(Base):
+    __tablename__ = "ai_sessions"
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        unique=True,
+        default=uuid.uuid4,
+    )
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+    title = Column(String(100), default="New session")
+
+    user = relationship("User", back_populates="sessions")
+    messages = relationship(
+        "AIMessage",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="AIMessage.created_at",
+    )
+
+
+class AIMessage(Base):
+    __tablename__ = "ai_messages"
 
     id = Column(
         UUID(as_uuid=True),
@@ -24,15 +74,21 @@ class Message(Base):
         unique=True,
         default=uuid.uuid4,
     )
-    user_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    user = Column(Text, nullable=False)
-    ai = Column(Text)
-    thinking = Column(JSON, nullable=False)
-    created_time = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+    session_id = Column(
+        UUID(as_uuid=True), ForeignKey("ai_sessions.id"), nullable=False
+    )
+    role = Column(Enum(AIMessageRole), nullable=False)
+    content = Column(Text, nullable=False)
+    ai_model = Column(String(50), default="")
+    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+
+    session = relationship("AISession", back_populates="messages")
 
 
 class ConnectionPoolManager:
     POOL_STATS_INTERVAL = 60
+    MAX_RETRIES = 3
+    RETRY_DELAY = 1
 
     def __init__(self, url, name):
         self.Session = None
@@ -50,15 +106,15 @@ class ConnectionPoolManager:
         }
 
     async def initialize(self) -> "ConnectionPoolManager":
-        await self.create_database_if_not_exists()
-        self.engine = create_async_engine(self.url + self.name, **self.pool_config)
+        # Only run one time
+        # await self.create_tables()
 
+        self.engine = create_async_engine(self.url + self.name, **self.pool_config)
         self.Session = async_sessionmaker(
             self.engine, expire_on_commit=False, class_=AsyncSession
         )
-
         self.monitor_task = asyncio.create_task(self.monitor_pool_stats())
-        await self.create_tables()
+
         return self
 
     async def create_database_if_not_exists(self) -> None:
@@ -77,9 +133,9 @@ class ConnectionPoolManager:
                 await conn.execute(text(f"CREATE DATABASE {self.name}"))
 
     async def create_tables(self) -> None:
+        await self.create_database_if_not_exists()
         async with self.engine.begin() as conn:
-            # Only run one time
-            # await conn.run_sync(Base.metadata.drop_all)
+            await conn.run_sync(Base.metadata.drop_all)
             await conn.run_sync(Base.metadata.create_all)
 
     async def get_session(self) -> AsyncSession:
@@ -122,24 +178,20 @@ class ConnectionPoolManager:
             await self.engine.dispose()
 
     async def save_chat(
-        self, user_id: UUID, user: str, ai: str, thinking: list
+        self,
+        session_id: UUID,
+        role: AIMessageRole,
+        content: text,
+        ai_model: Optional[str] = "",
     ) -> dict[str, Any]:
         session = await self.get_session()
         try:
-            serializable_thinking = []
-            for msg in thinking:
-                if hasattr(msg, "type") and hasattr(msg, "content"):
-                    msg_dict = {"role": msg.type, "content": msg.content}
-                    if hasattr(msg, "tool_calls"):
-                        msg_dict["tool_calls"] = msg.tool_calls
-                    serializable_thinking.append(msg_dict)
-
-            message = Message(
-                user_id=user_id,
+            message = AIMessage(
                 id=uuid.uuid4(),
-                user=user,
-                ai=ai,
-                thinking=serializable_thinking or thinking,
+                session_id=session_id,
+                role=role,
+                ai_model=ai_model,
+                content=content,
             )
             async with session.begin():
                 session.add(message)
@@ -147,51 +199,47 @@ class ConnectionPoolManager:
 
             return {
                 "id": message.id,
-                "user_id": message.user_id,
-                "user": message.user,
-                "ai": message.ai,
-                "thinking": message.thinking,
-                "created_time": message.created_time,
+                "session_id": message.session_id,
+                "role": message.role,
+                "content": message.content,
             }
 
         except Exception as e:
-            print(traceback.format_exc())
             raise e
 
         finally:
             await session.close()
 
+    @tenacity.retry(
+        stop=tenacity.stop_after_attempt(MAX_RETRIES),
+        wait=tenacity.wait_fixed(RETRY_DELAY),
+        retry=tenacity.retry_if_exception_type(Exception),
+        before=tenacity.before_log(log, logging.INFO),
+        after=tenacity.after_log(log, logging.INFO),
+    )
     async def get_chats(
-        self, user_id: UUID, id: UUID, return_items=("*",)
-    ) -> list[dict[str, Any | None]] | None:
+        self, session_id: UUID, limit: int = 300, order: Optional[str] = "asc"
+    ) -> Sequence[AIMessage]:
         session = await self.get_session()
 
         try:
-            stmt = select(Message).where(Message.id == id, Message.user_id == user_id)
+            stmt = (
+                select(AIMessage)
+                .where(AIMessage.session_id == session_id)
+                .order_by(
+                    AIMessage.created_at.desc()
+                    if order == "order"
+                    else AIMessage.created_at.asc()
+                )
+                .limit(limit)
+            )
             result = await session.execute(stmt)
-            messages = result.unique().scalars().all()
-            return [
-                {
-                    "id": m.id if "id" or "*" in return_items else None,
-                    "user_id": m.user_id if "user_id" or "*" in return_items else None,
-                    "user": (m.user if "user" or "*" in return_items else None),
-                    "ai": m.ai if "ai" or "*" in return_items else None,
-                    "thinking": (
-                        m.thinking if "thinking" or "*" in return_items else None
-                    ),
-                    "created_time": (
-                        m.created_time
-                        if "created_time" or "*" in return_items
-                        else None
-                    ),
-                }
-                for m in messages
-            ]
+            return result.unique().scalars().all()
         except Exception as e:
-            raise e
+            log.error(f"Error getting chats: {e}")
+            raise
         finally:
             await session.close()
-        return None
 
 
 async def run_db() -> ConnectionPoolManager:

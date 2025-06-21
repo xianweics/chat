@@ -1,17 +1,12 @@
 const {DataTypes, Sequelize} = require('sequelize');
 
-const AIMessageRole = {
-  USER: 'USER',
-  AI: 'AI',
-};
-
 module.exports = sequelize => {
   const User = sequelize.define('users', {
     id: {
       type: DataTypes.UUID,
       primaryKey: true,
       unique: true,
-      defaultValue: Sequelize.UUIDV4
+      defaultValue: Sequelize.UUIDV4,
     },
     username: {
       type: DataTypes.STRING(100),

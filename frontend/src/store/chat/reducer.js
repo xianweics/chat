@@ -182,7 +182,6 @@ const chat = (state = initialState, action) => {
           error: null,
         },
       };
-      debugger;
       if (state.sessions.data[sessionId].messages.length === 0) {
         normalUpdatedData.sessions = {
           ...state.sessions,

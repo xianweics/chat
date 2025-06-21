@@ -1,38 +1,35 @@
-const {authenticateJWT} = require("./auth-middleware");
-const {CHAT_URL} = require("./path");
-
-const {Message} = require("../db/postgres-server");
+const {authenticateJWT} = require('./auth-middleware');
+const {CHAT_URL} = require('./path');
 
 const chatRoute = (app) => {
   app.post(CHAT_URL, authenticateJWT, async (req, res) => {
     try {
       const {sessionId, content} = req.body;
 
-      // Save user message
-      const userMsg = await Message.create({
-        sessionId,
-        content,
-        is_from_ai: false
+      const targetUrl = `${process.env.RAG_SERVER_PROTOCAL}://${process.env.RAG_SERVER_HOST}:${process.env.RAG_SERVER_PORT}/chat`;
+
+      const response = await fetch(targetUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          session_id: sessionId,
+          content,
+        }),
       });
 
-      // Call Python service to process chat logic
-      // This will be implemented in the next iteration
-      // todo
-      const aiResponse = `AI Response: ${content} (This is a simulated response)`;
-
-      // Save AI response
-      const aiMsg = await Message.create({
-        sessionId,
-        content: aiResponse,
-        is_from_ai: true
-      });
-
-      res.json({userMsg, aiMsg});
+      const data = await response.json();
+      const {code, data: d, success} = data;
+      if (!success) {
+        res.status(code).json({data: 'Chat processing failed'});
+      } else {
+        res.status(code).json({data: d});
+      }
     } catch (err) {
-      console.error('Chat processing error:', err);
-      res.status(500).json({error: 'Chat processing failed'});
+      res.status(500).json({data: 'Chat processing failed'});
     }
   });
-}
+};
 
 module.exports = chatRoute;

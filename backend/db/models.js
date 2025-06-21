@@ -1,29 +1,117 @@
-const {DataTypes} = require("sequelize");
+const {DataTypes, Sequelize} = require('sequelize');
+
+const AIMessageRole = {
+  USER: 'USER',
+  AI: 'AI',
+};
 
 module.exports = sequelize => {
-  const User = sequelize.define('User', {
-    id: {type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true},
-    username: {type: DataTypes.STRING(50), unique: true, allowNull: false},
-    password: {type: DataTypes.STRING(255), allowNull: false}
-  }, {timestamps: true});
+  const User = sequelize.define('users', {
+    id: {
+      type: DataTypes.UUID,
+      primaryKey: true,
+      unique: true,
+      defaultValue: Sequelize.UUIDV4
+    },
+    username: {
+      type: DataTypes.STRING(100),
+      unique: true,
+      allowNull: false,
+    },
+    password: {
+      type: DataTypes.STRING(300),
+      allowNull: false,
+    },
+    created_at: {
+      type: DataTypes.DATE,
+      defaultValue: Sequelize.fn('NOW'),
+      allowNull: true,
+    },
+  }, {timestamps: false});
 
-  const Session = sequelize.define('Session', {
-    id: {type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true},
-    title: {type: DataTypes.STRING(100), allowNull: false, defaultValue: 'New session'}
-  }, {timestamps: true});
+  const AISession = sequelize.define('ai_sessions', {
+    id: {
+      type: DataTypes.UUID,
+      primaryKey: true,
+      unique: true,
+      defaultValue: Sequelize.UUIDV4,
+    },
+    user_id: {
+      type: DataTypes.UUID,
+      allowNull: false,
+      references: {
+        model: 'users',
+        key: 'id',
+      },
+    },
+    title: {
+      type: DataTypes.STRING(100),
+      defaultValue: 'New session',
+    },
+    created_at: {
+      type: DataTypes.DATE,
+      defaultValue: Sequelize.fn('NOW'),
+      allowNull: true,
+    },
+  }, {timestamps: false});
 
-  const Message = sequelize.define('Message', {
-    id: {type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true},
-    content: {type: DataTypes.TEXT, allowNull: false},
-    is_from_ai: {type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false}
+  const AIMessage = sequelize.define('ai_messages', {
+    id: {
+      type: DataTypes.UUID,
+      primaryKey: true,
+      unique: true,
+      defaultValue: Sequelize.UUIDV4,
+    },
+    session_id: {
+      type: DataTypes.UUID,
+      allowNull: false,
+      references: {
+        model: 'ai_sessions',
+        key: 'id',
+      },
+    },
+    role: {
+      type: DataTypes.STRING(20),
+      allowNull: false,
+    },
+    content: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+    },
+    ai_model: {
+      type: DataTypes.STRING(50),
+      defaultValue: '',
+    },
+    created_at: {
+      type: DataTypes.DATE,
+      defaultValue: Sequelize.fn('NOW'),
+      allowNull: false,
+    },
   }, {
-    timestamps: true,
-    indexes: [{fields: ['createdAt']}]
+    timestamps: false,
   });
-  
-  User.hasMany(Session, {foreignKey: 'userId'});
-  Session.belongsTo(User, {foreignKey: 'userId'});
-  Session.hasMany(Message, {foreignKey: 'sessionId', as: 'messages'});
-  Message.belongsTo(Session, {foreignKey: 'sessionId'});
-  return {User, Session, Message};
+
+  User.hasMany(AISession, {
+    foreignKey: 'user_id',
+    as: 'sessions',
+    onDelete: 'CASCADE',
+  });
+
+  AISession.belongsTo(User, {
+    foreignKey: 'user_id',
+    as: 'user',
+  });
+
+  AISession.hasMany(AIMessage, {
+    foreignKey: 'session_id',
+    as: 'messages',
+    onDelete: 'CASCADE',
+  });
+
+  AIMessage.belongsTo(AISession, {
+    foreignKey: 'session_id',
+    as: 'session',
+  });
+
+  return {User, AISession, AIMessage};
 };

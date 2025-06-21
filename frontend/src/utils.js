@@ -4,8 +4,12 @@ export const parseToken = token => {
   } catch (error) {
     throw error;
   }
-}
+};
 
 export const formatSessionDescription = messages => messages.length === 0
-  ? 'No messages yet'
-  : messages[0]?.content.trim() || '';
+    ? 'No messages yet'
+    : messages[0].content?.trim() || '';
+
+export const extractResponseData = (res, isError = true) => isError ?
+    res.response?.data?.data :
+    res.data?.data;

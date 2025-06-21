@@ -1,59 +1,51 @@
-const {authenticateJWT} = require("./auth-middleware");
-const {Session, Message} = require("../db/postgres-server");
-const {SESSIONS_URL, SESSIONS_URL_BASE_ID} = require("./path");
+const {authenticateJWT} = require('./auth-middleware');
+const {AISession, AIMessage} = require('../db/postgres-server');
+const {SESSIONS_URL, MESSAGES_BY_ID_URL} = require('./path');
 
 const sessionRoute = app => {
   app.get(SESSIONS_URL, authenticateJWT, async (req, res) => {
     try {
-      const sessions = await Session.findAll({
-        where: {userId: req.user.userId},
-        order: [['updatedAt', 'DESC']],
-        include: [{
-          model: Message,
-          as: 'messages',
-          limit: 1,
-          order: [['createdAt', 'ASC']]
-        }]
+      const sessions = await AISession.findAll({
+        where: {user_id: req.user.userId},
+        order: [['created_at', 'DESC']],
+        include: [
+          {
+            model: AIMessage,
+            as: 'messages',
+            limit: 1,
+            order: [['created_at', 'ASC']],
+          }],
       });
 
-      res.json(sessions);
+      res.json({data: sessions});
     } catch (err) {
-      console.error('Get sessions error:', err);
-      res.status(500).json({error: 'Failed to retrieve sessions'});
+      res.status(500).json({data: {error: 'Failed to retrieve sessions'}});
     }
   });
   app.post(SESSIONS_URL, authenticateJWT, async (req, res) => {
     try {
-      const session = await Session.create({
-        userId: req.user.userId,
-        title: `Chat-${new Date().toLocaleDateString('en-US')}`
+      const session = await AISession.create({
+        user_id: req.user.userId,
+        title: `Chat-${new Date().toLocaleDateString('en-US')}`,
       });
 
-      res.status(201).json(session);
+      res.status(201).json({data: session});
     } catch (err) {
-      console.error('Create session error:', err);
-      res.status(500).json({error: 'Failed to create session'});
+      res.status(500).json({data: 'Failed to create session'});
     }
   });
-  app.get(SESSIONS_URL_BASE_ID, authenticateJWT, async (req, res) => {
+  app.get(MESSAGES_BY_ID_URL, authenticateJWT, async (req, res) => {
     try {
-      const session = await Session.findByPk(req.params.id);
-
-      if (!session || session.userId !== req.user.userId) {
-        return res.status(404).json({error: 'Session not found'});
-      }
-
-      const messages = await Message.findAll({
-        where: {sessionId: req.params.id},
-        order: [['createdAt', 'ASC']]
+      const messages = await AIMessage.findAll({
+        where: {session_id: req.params.id},
+        order: [['created_at', 'ASC']],
       });
 
-      res.json(messages);
+      res.json({data: messages});
     } catch (err) {
-      console.error('Get messages error:', err);
-      res.status(500).json({error: 'Failed to retrieve messages'});
+      res.status(500).json({data: 'Failed to retrieve messages'});
     }
   });
-}
+};
 
 module.exports = sessionRoute;

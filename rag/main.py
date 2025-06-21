@@ -1,4 +1,10 @@
+import os
+
 from dotenv import load_dotenv
+
+# rag_dir = str(Path(__file__).parent)
+# if rag_dir not in sys.path:
+#     sys.path.insert(0, rag_dir)
 
 load_dotenv()
 
@@ -7,7 +13,6 @@ from logger import load_logger
 log = load_logger()
 
 from uuid import UUID
-import os
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.constants import END
 import json
@@ -24,8 +29,8 @@ from utils.db import run_db, ConnectionPoolManager
 from utils.llms import get_llm
 from utils.tools import get_tools
 from workflow_config import WorkFlow
-from rag.utils.config import AIMessageRole
-from rag.utils.utils import filter_messages
+from utils.config import AIMessageRole
+from utils.utils import filter_messages
 
 
 class Response(BaseModel):

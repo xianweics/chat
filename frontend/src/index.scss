@@ -1,3 +1,5 @@
+@import 'antd/dist/reset.css';
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
@@ -5,6 +7,96 @@ body {
   sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.text-center {
+  text-align: center;
+}
+
+.min-h-screen {
+  min-height: 100vh;
+}
+
+.bg-gray-100 {
+  background-color: #f3f4f6;
+}
+
+.flex {
+  display: flex;
+}
+
+.flex-1 {
+  flex: 1;
+}
+
+.flex-col {
+  flex-direction: column;
+}
+
+.items-center {
+  align-items: center;
+}
+
+.justify-center {
+  justify-content: center;
+}
+
+.justify-end {
+  justify-end: flex-end;
+}
+
+.justify-start {
+  justify-start: flex-start;
+}
+
+.gap-2 {
+  gap: 0.5rem;
+}
+
+.p-4 {
+  padding: 1rem;
+}
+
+.mb-4 {
+  margin-bottom: 1rem;
+}
+
+.overflow-auto {
+  overflow: auto;
+}
+
+.max-w-\[70\%\] {
+  max-width: 70%;
+}
+
+.bg-blue-100 {
+  background-color: #dbeafe;
+}
+
+.text-xs {
+  font-size: 0.75rem;
+}
+
+.text-gray-500 {
+  color: #6b7280;
+}
+
+a {
+  cursor: pointer;
+  color: #1890ff;
+  text-decoration: none;
+
+  &:hover {
+    color: #40a9ff;
+  }
 }
 
 .ant-layout {

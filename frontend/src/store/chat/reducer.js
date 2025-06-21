@@ -6,7 +6,7 @@ const initialState = {
   sessions: {
     status: statuses.SESSION_STATUS_IDLE,
     error: null,
-    sessions: {},
+    data: {},
   },
   messages: {
     error: null,
@@ -33,7 +33,7 @@ const chat = (state = initialState, action) => {
       return {
         ...state,
         sessions: {
-          sessions: {},
+          data: {},
           status: statuses.SESSION_STATUS_LOADING,
           error: null,
         },
@@ -44,7 +44,7 @@ const chat = (state = initialState, action) => {
         sessions: {
           error: null,
           status: statuses.SESSION_STATUS_SUCCEEDED,
-          sessions: payload.reduce((acc, session) => {
+          data: payload.reduce((acc, session) => {
             acc[session.id] = session;
             return acc;
           }, {}),
@@ -54,7 +54,7 @@ const chat = (state = initialState, action) => {
       return {
         ...state,
         sessions: {
-          sessions: {},
+          data: {},
           status: statuses.SESSION_STATUS_FAILED,
           error: payload,
         },
@@ -85,15 +85,15 @@ const chat = (state = initialState, action) => {
         },
         sessions: {
           ...state.sessions,
-          sessions: {
-            ...state.sessions.sessions,
+          data: {
+            ...state.sessions.data,
             [id]: {
               id,
               title,
               messages: [],
             },
-          }
-        }
+          },
+        },
       };
     case actionTypes.LOAD_MESSAGE_REQUEST:
       return {
@@ -169,17 +169,17 @@ const chat = (state = initialState, action) => {
           error: null,
         },
       };
-      if (state.sessions.sessions[sessionId].messages.length === 0) {
+      if (state.sessions.data[sessionId].messages.length === 0) {
         normalUpdatedData.sessions = {
           ...state.sessions,
           sessions: {
-            ...state.sessions.sessions,
+            ...state.sessions.data,
             [sessionId]: {
-              ...state.sessions.sessions[sessionId],
+              ...state.sessions.data[sessionId],
               messages: [userMessage],
             },
-          }
-        }
+          },
+        };
       }
       return normalUpdatedData;
     case actionTypes.SET_ACTIVE_SESSION:
@@ -187,6 +187,6 @@ const chat = (state = initialState, action) => {
     default:
       return state;
   }
-}
+};
 
 export default chat;

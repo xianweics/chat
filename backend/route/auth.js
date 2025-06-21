@@ -10,34 +10,42 @@ const privateKey = readFileSync(resolve(__dirname, '../private.pem'));
 const authRoute = app => {
   app.post(REGISTER_URL, async (req, res) => {
     const {username, password} = req.body;
+    if (!username || !password) {
+      res.status(400).json({data: 'Registration failed'});
+      return;
+    }
     const formatUserName = username.trim();
     const hasSameUser = await User.findOne({where: {username: formatUserName}});
     if (hasSameUser) {
-      res.status(409).send({error: 'User already exists'});
+      res.status(409).json({data: 'User already exists'});
       return;
     }
     try {
       const hashedPassword = await bcrypt.hash(password, 10);
       await User.create({username, password: hashedPassword});
-      res.status(201).json({message: `User ${username} created`});
+      res.status(201).json({data: `User ${username} created`});
     } catch (err) {
-      res.status(400).json({error: 'Registration failed'});
+      res.status(400).json({data: 'Registration failed'});
     }
   });
 
   app.post(LOGIN_URL, async (req, res) => {
     try {
       const {username, password} = req.body;
+      if (!username || !password) {
+        res.status(400).json({data: 'Login failed'});
+        return;
+      }
       const formatUserName = username.trim();
       const user = await User.findOne({where: {username: formatUserName}});
       if (!user) {
-        return res.status(401).json({code: 401, error: 'INVALID_CREDENTIALS'});
+        return res.status(401).json({data: 'Invalid credentials'});
       }
 
       const isValid = await bcrypt.compare(password, user.password);
 
       if (!isValid) {
-        return res.status(401).json({code: 401, error: 'INVALID_CREDENTIALS'});
+        return res.status(401).json({data: 'Invalid credentials'});
       }
 
       const token = jwt.sign({userId: user.id, username: user.username},
@@ -46,10 +54,9 @@ const authRoute = app => {
             algorithm: process.env.JWT_ALGORITHM,
           });
 
-      res.json({token});
+      res.json({data: token});
     } catch (err) {
-      console.error('Login error:', err);
-      res.status(500).json({error: 'Login failed'});
+      res.status(500).json({data: 'Login failed'});
     }
   });
 };

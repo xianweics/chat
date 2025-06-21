@@ -5,7 +5,7 @@ import {HOST} from '@api/path';
 
 const api = axios.create({
   baseURL: HOST,
-  timeout: 30000,
+  timeout: 60000,
 });
 
 api.interceptors.request.use(config => {

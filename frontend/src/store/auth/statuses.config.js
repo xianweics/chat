@@ -1,5 +1,3 @@
-export const AUTH_STATUS_LOADING = 'LOADING';
-
 export const LOGIN_STATUS_LOADING = 'LOADING';
 export const LOGIN_STATUS_SUCCEEDED = 'SUCCEEDED';
 export const LOGIN_STATUS_FAILED = 'FAILED';

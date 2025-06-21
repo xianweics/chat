@@ -136,37 +136,24 @@ async def non_stream_response(
         result = await graph.ainvoke(
             generate_invoke_payload(payload, histories),
         )
-        next_steps = result.get("next_steps", [])
-        next_steps = next_steps[0] if len(next_steps) else None
+        next_step = result.get("next_steps", [])[0]
         last_message = result["messages"][-1]
-        if next_steps == END and not last_message.tool_calls:
-            content = last_message.content
-            await db_pool.save_chat(
-                session_id=payload.session_id,
-                role=AIMessageRole.AI,
-                content=content,
-            )
-            return {
-                **SYSTEM_SUCCESS_CONTENT,
-                "data": {
-                    "content": content,
-                    "finish": True,
-                },
-            }
-        else:
-            content = "No response"
-            await db_pool.save_chat(
-                session_id=payload.session_id,
-                role=AIMessageRole.AI,
-                content=content,
-            )
-            return {
-                **SYSTEM_SUCCESS_CONTENT,
-                "data": {
-                    "content": content,
-                    "finish": True,
-                },
-            }
+        result = await db_pool.save_chat(
+            session_id=payload.session_id,
+            role=AIMessageRole.AI,
+            content=(
+                last_message.content
+                if next_step == END and not last_message.tool_calls
+                else "No response"
+            ),
+        )
+        return {
+            **SYSTEM_SUCCESS_CONTENT,
+            "data": {
+                **result,
+                "finish": True,
+            },
+        }
     except Exception as e:
         raise e
 

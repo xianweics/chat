@@ -36,5 +36,10 @@ export const loginUser = (username, password) => async dispatch => {
 export const logoutUser = () => async dispatch => {
   dispatch({type: actionTypes.LOGOUT});
   dispatch({type: actionTypes.SET_ACTIVE_SESSION, payload: null});
-  await api.post(apiPath.LOGOUT_URL);
+  try {
+    await api.post(apiPath.LOGOUT_URL);
+    return {success: true};
+  } catch (error) {
+    return {success: false};
+  }
 };

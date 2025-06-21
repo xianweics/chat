@@ -4,7 +4,7 @@ const {readFileSync} = require('fs');
 const {resolve} = require('path');
 
 const {User} = require('../db/postgres-server');
-const {REGISTER_URL, LOGIN_URL} = require('./path');
+const {REGISTER_URL, LOGIN_URL, LOGOUT_URL} = require('./path');
 const privateKey = readFileSync(resolve(__dirname, '../private.pem'));
 
 const authRoute = app => {
@@ -57,6 +57,14 @@ const authRoute = app => {
       res.json({data: token});
     } catch (err) {
       res.status(500).json({data: 'Login failed'});
+    }
+  });
+
+  app.post(LOGOUT_URL, (req, res) => {
+    try {
+      res.json({data: 'Logout successful'});
+    } catch (err) {
+      res.status(500).json({data: 'Logout failed'});
     }
   });
 };

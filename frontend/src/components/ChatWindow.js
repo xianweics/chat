@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useMemo, useState} from 'react';
-import {Button, Card, Input, Spin, Typography} from 'antd';
+import {Button, Card, Input, Skeleton, Typography} from 'antd';
 import {SendOutlined} from '@ant-design/icons';
 import {useDispatch, useSelector} from 'react-redux';
 
@@ -7,10 +7,10 @@ import MessageBubble from './MessageBubble';
 import {sendMessage} from '@store/chat/actions';
 import {modules} from '@store/config';
 import {
-  CREATE_STATUS_LOADING,
-  MESSAGE_STATUS_LOADING,
-  MESSAGE_STATUS_SUCCEEDED,
-  SEND_STATUS_LOADING,
+  CREATE_SESSION_STATUS_LOADING,
+  LOAD_MESSAGES_STATUS_LOADING,
+  LOAD_MESSAGES_STATUS_SUCCEEDED,
+  SEND_MESSAGE_STATUS_LOADING,
 } from '@store/chat/statuses.config';
 
 const {Title} = Typography;
@@ -22,16 +22,17 @@ const ChatWindow = () => {
   const {activeSessionId, sessions, messages, send, create} = useSelector(
       state => state[modules.chat]);
   const list = useMemo(() => {
-    const {status, messages: msg} = messages;
-    return status === MESSAGE_STATUS_SUCCEEDED ? msg : [];
+    const {status, data} = messages;
+    return status === LOAD_MESSAGES_STATUS_SUCCEEDED ? data : [];
   }, [messages]);
-  const currentSession = useMemo(() => sessions[activeSessionId],
+  const currentSession = useMemo(() => sessions.data[activeSessionId],
       [activeSessionId, sessions]);
-  const isLoadingSend = useMemo(() => send.status === SEND_STATUS_LOADING,
+  const isLoadingSend = useMemo(
+      () => send.status === SEND_MESSAGE_STATUS_LOADING,
       [send]);
   const isLoadingMessages = useMemo(
-      () => messages.status === MESSAGE_STATUS_LOADING || create.status ===
-          CREATE_STATUS_LOADING,
+      () => messages.status === LOAD_MESSAGES_STATUS_LOADING ||
+          create.status === CREATE_SESSION_STATUS_LOADING,
       [messages, create]);
 
   const handleSendMessage = useCallback(() => {
@@ -52,6 +53,10 @@ const ChatWindow = () => {
     setMessage('');
   }, [activeSessionId]);
 
+  useEffect(() => {
+    console.info('ss', list);
+  }, [list]);
+
   return activeSessionId ?
       <Card
           title={currentSession?.title || 'Chat Session'}
@@ -62,14 +67,9 @@ const ChatWindow = () => {
             border: 'none',
           }}
       >
-        {isLoadingMessages ? <Spin size={'large'} style={{
-          height: '100%',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}/> : <>
+        {isLoadingMessages ? <Skeleton active paragraph={{rows: 6}}/> : <>
           <div style={{overflowY: 'auto', padding: 16, height: '100%'}}>
-            {list.length === 0 ?
+            {list.length === 0 && !isLoadingSend ?
                 <div style={{
                   height: '100%',
                   display: 'flex',
@@ -79,12 +79,8 @@ const ChatWindow = () => {
                 }}>
                   No chat history
                 </div>
-                : list.map((msg) => <MessageBubble
-                        key={msg.id}
-                        isFromAi={msg.is_from_ai}
-                        content={msg.content}
-                    />,
-                )}
+                : list.map(item => <MessageBubble key={item.id} {...item} />)
+            }
           </div>
           <div style={{padding: 16, borderTop: '1px solid #f0f0f0'}}>
             <Input.TextArea

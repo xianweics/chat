@@ -1,14 +1,14 @@
-import {Button, Card, List, Skeleton, Typography} from 'antd';
-import {PlusOutlined} from '@ant-design/icons';
+import {Button, Card, Flex, List, message, Skeleton, Typography} from 'antd';
+import {LogoutOutlined, PlusOutlined} from '@ant-design/icons';
 import {useDispatch, useSelector} from 'react-redux';
 
 import {
   createSession,
   loadMessages,
   loadSessions,
-  resetLoadMessage,
   setActiveSession,
 } from '@store/chat/actions';
+import {logoutUser} from '@store/auth/actions';
 import {
   SESSION_STATUS_IDLE,
   SESSION_STATUS_LOADING,
@@ -16,11 +16,13 @@ import {
 import {modules} from '@store/config';
 import {useCallback, useEffect, useMemo} from 'react';
 import {formatSessionDescription} from '@src/utils';
+import {useNavigate} from 'react-router-dom';
 
 const {Title} = Typography;
 
 const SessionList = () => {
   const dispatch = useDispatch();
+  const navigate = useNavigate();
   const {sessions, activeSessionId} = useSelector(state => state[modules.chat]);
   const [sessionsList, sessionsStatus] = useMemo(
       () => [
@@ -33,9 +35,17 @@ const SessionList = () => {
     const {success, sessionId} = await dispatch(createSession());
     if (success) {
       dispatch(setActiveSession(sessionId));
-      dispatch(resetLoadMessage());
     }
   }, [dispatch]);
+  const handleLogout = useCallback(async () => {
+    const {success} = await dispatch(logoutUser());
+    if (success) {
+      navigate('/');
+      message.success('Logout successfully');
+    } else {
+      message.success('Logout failed');
+    }
+  }, [dispatch, navigate]);
 
   const handleSelectSession = useCallback(sessionId => {
     dispatch(setActiveSession(sessionId));
@@ -44,25 +54,30 @@ const SessionList = () => {
 
   useEffect(() => {
     dispatch(loadSessions());
-    console.info(11);
   }, [dispatch]);
 
   return (
       <Card style={{border: 'none'}}>
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          marginBottom: 16,
-        }}>
-          <Title level={4} style={{margin: 0}}>Chat Sessions</Title>
-          <Button
-              type="primary"
-              icon={<PlusOutlined/>}
-              onClick={handleCreateSession}
-              loading={isLoading}
-          >
-            New
-          </Button>
+        <Title level={4} style={{margin: 0}}>Chat Sessions</Title>
+        <div>
+          <Flex gap="small" justify="flex-end" style={{margin: '12px 0'}}>
+            <Button
+                size="small"
+                type="primary"
+                icon={<PlusOutlined/>}
+                onClick={handleCreateSession}
+                loading={isLoading}
+            >
+              New
+            </Button>
+            <Button
+                size="small"
+                icon={<LogoutOutlined/>}
+                onClick={handleLogout}
+            >
+              Logout
+            </Button>
+          </Flex>
         </div>
 
         {isLoading ?

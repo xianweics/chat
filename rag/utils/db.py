@@ -127,9 +127,6 @@ class ConnectionPoolManager:
             await conn.run_sync(Base.metadata.create_all)
             print("created table successfully")
 
-    async def get_session(self) -> AsyncSession:
-        return self.Session()
-
     async def monitor_pool_stats(self) -> None:
         while True:
             try:
@@ -195,6 +192,8 @@ class ConnectionPoolManager:
                     "session_id": message.session_id,
                     "role": message.role,
                     "content": message.content,
+                    "created_at": message.created_at,
+                    "ai_model": message.ai_model,
                 }
 
     @tenacity.retry(
@@ -207,20 +206,19 @@ class ConnectionPoolManager:
     async def get_chats(
         self, session_id: UUID, limit: int = 300, order: Optional[str] = "asc"
     ) -> Sequence[AIMessage]:
-        session = await self.get_session()
-
-        stmt = (
-            select(AIMessage)
-            .where(AIMessage.session_id == session_id)
-            .order_by(
-                AIMessage.created_at.desc()
-                if order == "order"
-                else AIMessage.created_at.asc()
+        async with self.Session() as session:
+            stmt = (
+                select(AIMessage)
+                .where(AIMessage.session_id == session_id)
+                .order_by(
+                    AIMessage.created_at.desc()
+                    if order == "order"
+                    else AIMessage.created_at.asc()
+                )
+                .limit(limit)
             )
-            .limit(limit)
-        )
-        result = await session.execute(stmt)
-        return result.unique().scalars().all()
+            result = await session.execute(stmt)
+            return result.unique().scalars().all()
 
 
 async def run_db() -> ConnectionPoolManager:

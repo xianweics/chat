@@ -24,7 +24,16 @@ const chatRoute = (app) => {
       if (!success) {
         res.status(code).json({data: 'Chat processing failed'});
       } else {
-        res.status(code).json({data: d});
+        res.status(code).json({
+          data: {
+            session_id: d.session_id,
+            ai_model: d.ai_model,
+            content: d.content,
+            id: d.id,
+            role: d.role,
+            created_at: d.created_at,
+          },
+        });
       }
     } catch (err) {
       res.status(500).json({data: 'Chat processing failed'});

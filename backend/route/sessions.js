@@ -26,9 +26,8 @@ const sessionRoute = app => {
     try {
       const session = await AISession.create({
         user_id: req.user.userId,
-        title: `Chat-${new Date().toLocaleDateString('en-US')}`,
+        title: `Chat-${new Date().toLocaleString()}`,
       });
-
       res.status(201).json({data: session});
     } catch (err) {
       res.status(500).json({data: 'Failed to create session'});
@@ -36,12 +35,12 @@ const sessionRoute = app => {
   });
   app.get(MESSAGES_BY_ID_URL, authenticateJWT, async (req, res) => {
     try {
-      const messages = await AIMessage.findAll({
+      const data = await AIMessage.findAll({
         where: {session_id: req.params.id},
         order: [['created_at', 'ASC']],
       });
 
-      res.json({data: messages});
+      res.json({data});
     } catch (err) {
       res.status(500).json({data: 'Failed to retrieve messages'});
     }

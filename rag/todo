@@ -3,7 +3,15 @@
 2. 多并发优化：消息队列。
 6. 数据库改名为蛇形：xx_xx
 7. 多路召回，重排序。用户意图识别增强(分解成各种小问题)
+3. 把代码转nodejs实现,nestjs
 
-8. 同步请求与异步请求的区别？例如invoke vs ainvolke
-9. tools 的异步执行。会影响结果？
-3. 把代码转nodejs实现
+1. nestjs 视频 + 实现
+2. react源码解析
+3. webpack运行流程，最新特性。哪些生产用？
+4. langchain文档 + langgraph 文档
+5. 聚客 mcp + 微调
+6. manus 重实现
+1. prompt 提示词学习
+
+
+1. 项目完善 + 面试题目准备
